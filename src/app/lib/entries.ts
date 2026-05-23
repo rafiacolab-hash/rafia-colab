@@ -1,0 +1,81 @@
+import { createDataClient } from '@/app/lib/supabase'
+
+export type DayEntryStatus =
+  | 'AGUARDANDO' | 'A_FAZER' | 'ANDAMENTO'
+  | 'VALIDACAO' | 'CORRECAO' | 'CANCELADO' | 'POSTADO'
+  | null
+
+export type DayEntry = {
+  id: string
+  month_list_id: string
+  client_id: string
+  entry_date: string
+  dia_semana: string
+  mes_ref?: string | null
+  stories_content: string | null
+  stories_status: DayEntryStatus
+  stories_format: string | null
+  feed_content: string | null
+  feed_status: DayEntryStatus
+  feed_format: string | null
+  acoes_content: string | null
+  acoes_status: DayEntryStatus
+  acoes_format: string | null
+  legenda_copy: string | null
+  arte_link: string | null
+  observacoes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function getEntriesByClientAndMonth(
+  clientId: string,
+  monthRef: string
+): Promise<DayEntry[]> {
+  console.log('[entries] getEntriesByClientAndMonth chamado', { clientId, monthRef })
+  // createDataClient lê o token do cookie — sem getSession(), sem lock de auth
+  const supabase = createDataClient()
+
+  // Filtra por entry_date range (YYYY-MM-01 até YYYY-MM-31)
+  // Não usa mes_ref pois a coluna pode não existir no banco
+  const { data, error } = await supabase
+    .from('day_entries')
+    .select('*')
+    .eq('client_id', clientId)
+    .gte('entry_date', `${monthRef}-01`)
+    .lte('entry_date', `${monthRef}-31`)
+    .order('entry_date', { ascending: true })
+
+  console.log('[entries] resposta Supabase', { data, error })
+
+  if (error) {
+    console.error('[entries] erro ao buscar entries:', error)
+    throw error
+  }
+  return data || []
+}
+
+const DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+export async function generateMonthEntries(
+  clientId: string,
+  monthRef: string,
+  monthListId: string
+): Promise<void> {
+  const supabase = createDataClient()
+  const [year, month] = monthRef.split('-').map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+
+  const entries = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = new Date(year, month - 1, i + 1)
+    return {
+      month_list_id: monthListId,
+      client_id: clientId,
+      entry_date: date.toISOString().split('T')[0],
+      dia_semana: DAYS[date.getDay()],
+    }
+  })
+
+  const { error } = await supabase.from('day_entries').insert(entries)
+  if (error) throw error
+}
