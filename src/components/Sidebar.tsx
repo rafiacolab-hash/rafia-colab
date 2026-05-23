@@ -13,7 +13,7 @@ export default function Sidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [userName, setUserName] = useState<string>('')
   const [userRole, setUserRole] = useState<string>('...')
-  const [linkedClientId, setLinkedClientId] = useState<string | null>(null)
+
   const router = useRouter()
   const pathname = usePathname()
 
@@ -40,7 +40,6 @@ export default function Sidebar() {
             setUserName(profile.name)
             const roleMap: Record<string, string> = { admin: 'Admin', assistant: 'Assistente', client: 'Cliente' }
             setUserRole(roleMap[profile.role] || profile.role)
-            setLinkedClientId(profile.client_id ?? null)
             loadClients(profile.role, profile.client_id ?? null)
           }
         })

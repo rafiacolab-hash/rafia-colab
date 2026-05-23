@@ -1,5 +1,3 @@
-type Status = 'AGUARDANDO' | 'A_FAZER' | 'ANDAMENTO' | 'VALIDACAO' | 'CORRECAO' | 'CANCELADO' | 'POSTADO' | null
-
 const statusConfig: Record<string, { label: string; className: string }> = {
   AGUARDANDO:  { label: 'Ag. Aprovação', className: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
   A_FAZER:     { label: 'A Fazer',       className: 'bg-zinc-700/50 text-zinc-400 border-zinc-600' },

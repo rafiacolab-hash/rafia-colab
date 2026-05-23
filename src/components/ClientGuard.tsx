@@ -21,7 +21,7 @@ function currentMonthRef(): string {
 }
 
 export default function ClientGuard({ children }: { children: React.ReactNode }) {
-  const { loading, isClient, isAdmin, isAssistant, linkedClientId } = useAuth()
+  const { loading, isClient, linkedClientId } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
 

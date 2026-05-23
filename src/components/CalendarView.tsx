@@ -52,7 +52,7 @@ function buildCalendarCells(monthRef: string, entries: DayEntry[]): CalendarCell
   endDate.setDate(lastDay.getDate() + remaining)
 
   const weeks: CalendarCell[][] = []
-  let current = new Date(startDate)
+  const current = new Date(startDate)
 
   while (current <= endDate) {
     const week: CalendarCell[] = []
