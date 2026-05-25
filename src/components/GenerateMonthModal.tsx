@@ -61,22 +61,46 @@ export default function GenerateMonthModal({ clientId, clientName, monthRef, onC
       monthListId = newList.id
     }
 
-    // 2. Monta os entries para cada dia do mês
+    // 2. Verifica quais datas já existem para este month_list
+    const { data: existingEntries, error: fetchEntriesError } = await supabase
+      .from('day_entries')
+      .select('entry_date')
+      .eq('month_list_id', monthListId)
+
+    if (fetchEntriesError) {
+      console.error('[GenerateMonth] erro ao buscar entries existentes:', fetchEntriesError)
+      setError(`Erro ao verificar dias: ${fetchEntriesError.message}`)
+      setLoading(false)
+      return
+    }
+
+    const existingDates = new Set((existingEntries ?? []).map((e: { entry_date: string }) => e.entry_date))
+
+    // 3. Monta apenas os dias que ainda não existem
     const entries = []
     for (let day = 1; day <= totalDays; day++) {
       const date = new Date(year, month - 1, day)
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      entries.push({ month_list_id: monthListId, client_id: clientId, entry_date: dateStr, dia_semana: getDayName(date) })
+      if (!existingDates.has(dateStr)) {
+        entries.push({ month_list_id: monthListId, client_id: clientId, entry_date: dateStr, dia_semana: getDayName(date) })
+      }
     }
 
-    // 3. Insere os dias — usa insert (não upsert) para evitar dependência de constraint única
-    const { error: upsertError } = await supabase
-      .from('day_entries')
-      .upsert(entries, { onConflict: 'month_list_id,entry_date' })
+    // Se todos os dias já existem, apenas recarrega
+    if (entries.length === 0) {
+      setLoading(false)
+      onSuccess()
+      return
+    }
 
-    if (upsertError) {
-      console.error('[GenerateMonth] erro ao inserir day_entries:', upsertError)
-      setError(`Erro ao gerar dias: ${upsertError.message}`)
+    // 4. Insert simples (sem upsert/onConflict) — só insere os dias que faltam
+    const { error: insertError } = await supabase
+      .from('day_entries')
+      .insert(entries)
+
+    if (insertError) {
+      console.error('[GenerateMonth] erro ao inserir day_entries:', insertError)
+      setError(`Erro ao gerar dias: ${insertError.message}`)
       setLoading(false)
       return
     }
