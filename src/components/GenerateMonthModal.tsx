@@ -20,26 +20,48 @@ const getDayName = (date: Date) => {
 
 export default function GenerateMonthModal({ clientId, clientName, monthRef, onClose, onSuccess }: Props) {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [year, month] = monthRef.split('-').map(Number)
   const totalDays = getDaysInMonth(year, month)
 
   const handleGenerate = async () => {
     setLoading(true)
+    setError(null)
     const supabase = createDataClient()
 
     let monthListId: string
-    const { data: existing } = await supabase
+
+    // 1. Verifica se já existe month_list para esse cliente/mês
+    const { data: existing, error: fetchError } = await supabase
       .from('month_lists').select('id').eq('client_id', clientId).eq('month_ref', monthRef).single()
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      // PGRST116 = "no rows found", que é esperado na primeira vez
+      console.error('[GenerateMonth] erro ao buscar month_list:', fetchError)
+      setError(`Erro ao verificar planejamento: ${fetchError.message}`)
+      setLoading(false)
+      return
+    }
 
     if (existing) {
       monthListId = existing.id
     } else {
-      const { data: newList } = await supabase
-        .from('month_lists').insert({ client_id: clientId, month_ref: monthRef, year }).select('id').single()
-      if (!newList) { setLoading(false); return }
+      const { data: newList, error: insertListError } = await supabase
+        .from('month_lists')
+        .insert({ client_id: clientId, month_ref: monthRef, year })
+        .select('id')
+        .single()
+
+      if (insertListError || !newList) {
+        console.error('[GenerateMonth] erro ao criar month_list:', insertListError)
+        setError(`Erro ao criar planejamento: ${insertListError?.message ?? 'sem retorno do banco'}`)
+        setLoading(false)
+        return
+      }
       monthListId = newList.id
     }
 
+    // 2. Monta os entries para cada dia do mês
     const entries = []
     for (let day = 1; day <= totalDays; day++) {
       const date = new Date(year, month - 1, day)
@@ -47,7 +69,18 @@ export default function GenerateMonthModal({ clientId, clientName, monthRef, onC
       entries.push({ month_list_id: monthListId, client_id: clientId, entry_date: dateStr, dia_semana: getDayName(date) })
     }
 
-    await supabase.from('day_entries').upsert(entries, { onConflict: 'month_list_id,entry_date' })
+    // 3. Insere os dias — usa insert (não upsert) para evitar dependência de constraint única
+    const { error: upsertError } = await supabase
+      .from('day_entries')
+      .upsert(entries, { onConflict: 'month_list_id,entry_date' })
+
+    if (upsertError) {
+      console.error('[GenerateMonth] erro ao inserir day_entries:', upsertError)
+      setError(`Erro ao gerar dias: ${upsertError.message}`)
+      setLoading(false)
+      return
+    }
+
     setLoading(false)
     onSuccess()
   }
@@ -71,6 +104,12 @@ export default function GenerateMonthModal({ clientId, clientName, monthRef, onC
             para <span className="text-theme-primary font-medium">{clientName}</span> — {monthNames[month - 1]} {year}
           </p>
         </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mb-4">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
 
         <div className="flex gap-3">
           <button onClick={onClose}

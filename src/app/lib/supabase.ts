@@ -19,14 +19,9 @@ export const createClient = () =>
 
 // ─── Cookie helpers ───────────────────────────────────────────────────────────
 // Lê o access token diretamente do cookie sem passar pelo lock do auth-js
-function getAccessTokenFromCookie(): string | null {
-  if (typeof document === 'undefined') return null
-  const cookieName = `sb-${PROJECT_REF}-auth-token`
-  const all = document.cookie.split(';')
-  const raw = all.find(c => c.trim().startsWith(cookieName + '='))
-  if (!raw) return null
+function parseTokenFromCookieValue(raw: string): string | null {
   try {
-    let value = decodeURIComponent(raw.trim().slice(cookieName.length + 1))
+    let value = decodeURIComponent(raw)
     // Supabase ≥2.x pode armazenar o cookie com prefixo "base64-<base64encodedJSON>"
     if (value.startsWith('base64-')) {
       value = atob(value.slice(7))
@@ -36,6 +31,34 @@ function getAccessTokenFromCookie(): string | null {
   } catch {
     return null
   }
+}
+
+function getAccessTokenFromCookie(): string | null {
+  if (typeof document === 'undefined') return null
+  const cookieName = `sb-${PROJECT_REF}-auth-token`
+  const all = document.cookie.split(';').map(c => c.trim())
+
+  // Tenta o cookie direto primeiro
+  const direct = all.find(c => c.startsWith(cookieName + '='))
+  if (direct) {
+    const token = parseTokenFromCookieValue(direct.slice(cookieName.length + 1))
+    if (token) return token
+  }
+
+  // Supabase SSR ≥2.x divide o cookie em chunks quando o JWT é grande:
+  // sb-xxx-auth-token.0, sb-xxx-auth-token.1, etc.
+  const chunks: string[] = []
+  for (let i = 0; ; i++) {
+    const chunkName = `${cookieName}.${i}=`
+    const chunk = all.find(c => c.startsWith(chunkName))
+    if (!chunk) break
+    chunks.push(decodeURIComponent(chunk.slice(chunkName.length)))
+  }
+  if (chunks.length > 0) {
+    return parseTokenFromCookieValue(chunks.join(''))
+  }
+
+  return null
 }
 
 // Decodifica o JWT do cookie e retorna id + email do usuário logado
