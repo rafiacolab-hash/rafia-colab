@@ -36,14 +36,18 @@ export async function getEntriesByClientAndMonth(
   // createDataClient lê o token do cookie — sem getSession(), sem lock de auth
   const supabase = createDataClient()
 
-  // Filtra por entry_date range (YYYY-MM-01 até YYYY-MM-31)
-  // Não usa mes_ref pois a coluna pode não existir no banco
+  // Calcula o último dia real do mês (evita datas inválidas como 2026-06-31)
+  const [year, month] = monthRef.split('-').map(Number)
+  const lastDay = new Date(year, month, 0).getDate()
+  const lastDate = `${monthRef}-${String(lastDay).padStart(2, '0')}`
+
+  // Filtra por entry_date range (YYYY-MM-01 até último dia real do mês)
   const { data, error } = await supabase
     .from('day_entries')
     .select('*')
     .eq('client_id', clientId)
     .gte('entry_date', `${monthRef}-01`)
-    .lte('entry_date', `${monthRef}-31`)
+    .lte('entry_date', lastDate)
     .order('entry_date', { ascending: true })
 
   console.log('[entries] resposta Supabase', { data, error })
