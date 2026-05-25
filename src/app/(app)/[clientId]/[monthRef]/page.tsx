@@ -14,46 +14,35 @@ import GenerateMonthModal from '@/components/GenerateMonthModal'
 
 type ViewMode = 'lista' | 'kanban' | 'calendario'
 
-// ─── Helpers de navegação entre meses ────────────────────────────────────────
 function shiftMonth(ref: string, delta: 1 | -1): string {
   const [y, m] = ref.split('-').map(Number)
   const d = new Date(y, m - 1 + delta, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-type Props = {
-  params: { clientId: string; monthRef: string }
-}
+type Props = { params: { clientId: string; monthRef: string } }
 
 export default function ClientMonthPage({ params }: Props) {
   const { clientId, monthRef } = params
-  const { isAdmin } = useAuth()
+  const { isAdmin, isAssistant } = useAuth()
+  const canManage = isAdmin || isAssistant
   const router = useRouter()
-  const [entries, setEntries] = useState<DayEntry[]>([])
-  const [loading, setLoading] = useState(true)
+  const [entries, setEntries]   = useState<DayEntry[]>([])
+  const [loading, setLoading]   = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [clientName, setClientName] = useState<string>('')
   const [viewMode, setViewMode] = useState<ViewMode>('lista')
 
-  // Busca o nome do cliente — usa createDataClient() (sem lock de auth)
   useEffect(() => {
     const supabase = createDataClient()
-    supabase
-      .from('clients')
-      .select('name')
-      .eq('id', clientId)
-      .single()
-      .then(({ data }: { data: { name: string } | null }) => {
-        if (data) setClientName(data.name)
-      })
+    supabase.from('clients').select('name').eq('id', clientId).single()
+      .then(({ data }: { data: { name: string } | null }) => { if (data) setClientName(data.name) })
   }, [clientId])
 
   const fetchEntries = async () => {
-    console.log('[page] fetchEntries iniciando', { clientId, monthRef })
     setLoading(true)
     try {
       const data = await getEntriesByClientAndMonth(clientId, monthRef)
-      console.log('[page] entries recebidas:', data?.length)
       setEntries(data)
     } catch (err) {
       console.error('[page] erro em fetchEntries:', err)
@@ -63,72 +52,55 @@ export default function ClientMonthPage({ params }: Props) {
   }
 
   useEffect(() => {
-    if (clientId && monthRef) {
-      fetchEntries()
-    }
+    if (clientId && monthRef) fetchEntries()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, monthRef])
 
-  const formattedMonth = new Date(monthRef + '-02').toLocaleDateString('pt-BR', {
-    month: 'long', year: 'numeric',
-  })
-
+  const formattedMonth = new Date(monthRef + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
   const goToPrev = () => router.push(`/${clientId}/${shiftMonth(monthRef, -1)}`)
   const goToNext = () => router.push(`/${clientId}/${shiftMonth(monthRef, 1)}`)
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-8 py-5 border-b border-zinc-800">
-        {/* Navegação de mês */}
+      {/* Topbar */}
+      <div className="flex items-center justify-between px-8 py-5 border-b border-theme-border bg-theme-bg">
         <div className="flex items-center gap-3">
-          <button
-            onClick={goToPrev}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-            title="Mês anterior"
-          >
+          <button onClick={goToPrev}
+            className="p-1.5 rounded-lg text-theme-secondary hover:text-theme-primary hover:bg-theme-surface transition-colors">
             <ChevronLeft size={18} />
           </button>
           <div className="text-center min-w-[140px]">
-            <h1 className="text-lg font-semibold text-white capitalize">{formattedMonth}</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">{entries.length} dias planejados</p>
+            <h1 className="text-lg font-semibold text-theme-primary capitalize">{formattedMonth}</h1>
+            <p className="text-xs text-theme-muted mt-0.5">{entries.length} dias planejados</p>
           </div>
-          <button
-            onClick={goToNext}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-            title="Próximo mês"
-          >
+          <button onClick={goToNext}
+            className="p-1.5 rounded-lg text-theme-secondary hover:text-theme-primary hover:bg-theme-surface transition-colors">
             <ChevronRight size={18} />
           </button>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Toggle Lista / Kanban / Calendário */}
-          <div className="flex items-center bg-zinc-800 rounded-lg p-1 gap-0.5">
+          {/* Toggle de view */}
+          <div className="flex items-center bg-theme-surface rounded-lg p-1 gap-0.5">
             {([
-              ['lista',     'Lista',      <LayoutList  size={15} />],
-              ['kanban',    'Kanban',     <Columns3    size={15} />],
-              ['calendario','Calendário', <CalendarDays size={15} />],
+              ['lista',      'Lista',       <LayoutList   size={15} />],
+              ['kanban',     'Kanban',      <Columns3     size={15} />],
+              ['calendario', 'Calendário',  <CalendarDays size={15} />],
             ] as const).map(([mode, title, icon]) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                title={title}
+              <button key={mode} onClick={() => setViewMode(mode)} title={title}
                 className={`p-1.5 rounded-md transition-colors ${
                   viewMode === mode
-                    ? 'bg-zinc-700 text-white'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
+                    ? 'bg-theme-card text-theme-primary shadow-sm'
+                    : 'text-theme-muted hover:text-theme-secondary'
+                }`}>
                 {icon}
               </button>
             ))}
           </div>
 
-          {isAdmin && (
-            <button
-              onClick={() => setShowModal(true)}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg transition-colors"
-            >
+          {canManage && (
+            <button onClick={() => setShowModal(true)}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold rounded-lg transition-colors">
               + Gerar Mês
             </button>
           )}
@@ -137,19 +109,17 @@ export default function ClientMonthPage({ params }: Props) {
 
       {entries.length > 0 && <StatsBar entries={entries} />}
 
-      <div className="flex-1 overflow-auto px-8 py-6">
+      <div className="flex-1 overflow-auto px-8 py-6 bg-theme-bg">
         {loading ? (
           <div className="flex items-center justify-center h-32">
             <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
-            <p className="text-zinc-500 text-sm">Nenhum dia planejado para este mês.</p>
-            {isAdmin && (
-              <button
-                onClick={() => setShowModal(true)}
-                className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded-lg transition-colors"
-              >
+            <p className="text-theme-secondary text-sm">Nenhum dia planejado para este mês.</p>
+            {canManage && (
+              <button onClick={() => setShowModal(true)}
+                className="mt-4 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold rounded-lg transition-colors">
                 Gerar planejamento do mês
               </button>
             )}
@@ -164,13 +134,13 @@ export default function ClientMonthPage({ params }: Props) {
       </div>
 
       {showModal && (
-        <GenerateMonthModal
-          clientId={clientId}
-          clientName={clientName}
-          monthRef={monthRef}
+        <GenerateMonthModal clientId={clientId} clientName={clientName} monthRef={monthRef}
           onClose={() => setShowModal(false)}
-          onSuccess={() => { setShowModal(false); fetchEntries() }}
-        />
+          onSuccess={() => {
+            setShowModal(false)
+            fetchEntries()
+            ;(window as Window & { __sidebarRefreshMonths?: (id: string) => void }).__sidebarRefreshMonths?.(clientId)
+          }} />
       )}
     </div>
   )

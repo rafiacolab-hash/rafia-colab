@@ -1,15 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, ArrowRight, CalendarDays, AlertCircle, LayoutGrid } from 'lucide-react'
+import {
+  ChevronLeft, ChevronRight, ArrowRight, AlertCircle,
+  LayoutGrid, LayoutList, Columns3, CalendarDays,
+  Pencil, X,
+} from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
-import type { DayEntryStatus } from '@/app/lib/entries'
+import type { DayEntryStatus, DayEntry } from '@/app/lib/entries'
+import EditEntryModal from '@/components/EditEntryModal'
+import ListaView    from '@/components/ListaView'
+import StatusBadge  from '@/components/StatusBadge'
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 type Client = { id: string; name: string; color: string }
 type StatusCounts = Partial<Record<NonNullable<DayEntryStatus>, number>>
-type DayCell = { s: DayEntryStatus; f: DayEntryStatus; a: DayEntryStatus }
 
 type ClientSummary = {
   client: Client
@@ -19,116 +25,144 @@ type ClientSummary = {
   postedItems: number
   statusCounts: StatusCounts
   totalDays: number
-  dayData: Record<string, DayCell>   // 'YYYY-MM-DD' → statuses por tipo
 }
 
-// ─── Configuração de status (excluindo CANCELADO da barra de progresso) ───────
+type KanbanItem = {
+  key: string
+  client: Client
+  entry: DayEntry
+  type: 'stories' | 'feed' | 'acoes'
+  typeLabel: string
+  typeDot: string
+  typeColor: string
+  content: string | null
+  status: DayEntryStatus
+  format: string | null
+}
+
+// ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<NonNullable<DayEntryStatus>, { label: string; color: string; bg: string }> = {
-  AGUARDANDO: { label: 'Ag. Aprovação', color: 'text-amber-400',  bg: 'bg-amber-500'  },
-  A_FAZER:    { label: 'A Fazer',       color: 'text-zinc-400',   bg: 'bg-zinc-500'   },
-  ANDAMENTO:  { label: 'Em Andamento',  color: 'text-blue-400',   bg: 'bg-blue-500'   },
-  VALIDACAO:  { label: 'Em Validação',  color: 'text-purple-400', bg: 'bg-purple-500' },
-  CORRECAO:   { label: 'Em Correção',   color: 'text-red-400',    bg: 'bg-red-500'    },
-  CANCELADO:  { label: 'Cancelado',     color: 'text-zinc-600',   bg: 'bg-zinc-700'   },
-  POSTADO:    { label: 'Postado',       color: 'text-emerald-400',bg: 'bg-emerald-500'},
+  AGUARDANDO: { label: 'Ag. Aprovação', color: 'text-amber-400',       bg: 'bg-amber-500'    },
+  A_FAZER:    { label: 'A Fazer',       color: 'text-theme-secondary', bg: 'bg-zinc-500'     },
+  ANDAMENTO:  { label: 'Em Andamento',  color: 'text-blue-400',        bg: 'bg-blue-500'     },
+  VALIDACAO:  { label: 'Em Validação',  color: 'text-purple-400',      bg: 'bg-purple-500'   },
+  CORRECAO:   { label: 'Em Correção',   color: 'text-red-400',         bg: 'bg-red-500'      },
+  CANCELADO:  { label: 'Cancelado',     color: 'text-theme-muted',     bg: 'bg-theme-raised' },
+  POSTADO:    { label: 'Postado',       color: 'text-emerald-400',     bg: 'bg-emerald-500'  },
 }
 
-// Status visíveis nos cards (sem CANCELADO para não poluir)
 const VISIBLE_STATUSES: NonNullable<DayEntryStatus>[] = [
-  'POSTADO', 'ANDAMENTO', 'VALIDACAO', 'CORRECAO', 'AGUARDANDO', 'A_FAZER',
+  'POSTADO','ANDAMENTO','VALIDACAO','CORRECAO','AGUARDANDO','A_FAZER',
 ]
 
-// ─── Helpers de mês ───────────────────────────────────────────────────────────
-function currentMonthRef(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+const KANBAN_COLUMNS: { status: DayEntryStatus; label: string; dot: string; accent: string }[] = [
+  { status: 'A_FAZER',    label: 'A Fazer',       dot: 'bg-zinc-500',    accent: 'border-theme-border'    },
+  { status: 'AGUARDANDO', label: 'Ag. Aprovação', dot: 'bg-amber-500',   accent: 'border-amber-500/50'    },
+  { status: 'ANDAMENTO',  label: 'Em Andamento',  dot: 'bg-blue-500',    accent: 'border-blue-500/50'     },
+  { status: 'VALIDACAO',  label: 'Em Validação',  dot: 'bg-purple-500',  accent: 'border-purple-500/50'   },
+  { status: 'CORRECAO',   label: 'Em Correção',   dot: 'bg-red-500',     accent: 'border-red-500/50'      },
+  { status: 'POSTADO',    label: 'Postado',        dot: 'bg-emerald-500', accent: 'border-emerald-500/50'  },
+  { status: 'CANCELADO',  label: 'Cancelado',     dot: 'bg-zinc-400',    accent: 'border-theme-border'    },
+]
+
+const TYPE_CONFIG = {
+  stories: { label: 'Stories', dot: 'bg-pink-400',    color: 'text-pink-600 dark:text-pink-400'       },
+  feed:    { label: 'Feed',    dot: 'bg-blue-400',    color: 'text-blue-600 dark:text-blue-400'       },
+  acoes:   { label: 'Ação',    dot: 'bg-emerald-400', color: 'text-emerald-600 dark:text-emerald-400' },
 }
 
+// ─── Calendar helpers ─────────────────────────────────────────────────────────
+const WEEK_DAYS   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb']
+const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
+function buildCalendarWeeks(monthRef: string) {
+  const [year, month] = monthRef.split('-').map(Number)
+  const firstDay = new Date(year, month - 1, 1)
+  const lastDay  = new Date(year, month, 0)
+  const start = new Date(firstDay); start.setDate(firstDay.getDate() - firstDay.getDay())
+  const end   = new Date(lastDay);  end.setDate(lastDay.getDate() + (6 - lastDay.getDay()))
+
+  const weeks: { date: Date; dateStr: string; isCurrentMonth: boolean }[][] = []
+  const cur = new Date(start)
+  while (cur <= end) {
+    const week = []
+    for (let d = 0; d < 7; d++) {
+      week.push({ date: new Date(cur), dateStr: cur.toISOString().split('T')[0], isCurrentMonth: cur.getMonth() === month - 1 })
+      cur.setDate(cur.getDate() + 1)
+    }
+    weeks.push(week)
+  }
+  return weeks
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function currentMonthRef(): string {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
+}
 function shiftMonth(ref: string, delta: 1 | -1): string {
   const [y, m] = ref.split('-').map(Number)
   const d = new Date(y, m - 1 + delta, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
-
 function formatMonth(ref: string): string {
   return new Date(ref + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 }
+function formatDay(entry: DayEntry): string {
+  const day = new Date(entry.entry_date + 'T12:00:00').getDate()
+  return `${String(day).padStart(2, '0')} · ${entry.dia_semana}`
+}
 
-// ─── Componente de card de cliente ───────────────────────────────────────────
+// ─── Client Card ──────────────────────────────────────────────────────────────
 function ClientCard({ summary, onClick }: { summary: ClientSummary; onClick: () => void }) {
   const { client, hasMonth, totalItems, postedItems, statusCounts, totalDays } = summary
   const pct = totalItems > 0 ? Math.round((postedItems / totalItems) * 100) : 0
 
   return (
-    <button
-      onClick={onClick}
-      className="group w-full text-left bg-zinc-900 border border-zinc-800 rounded-2xl p-5 hover:border-zinc-600 hover:bg-zinc-800/50 transition-all duration-200"
-    >
-      {/* Header do card */}
+    <button onClick={onClick}
+      className="group w-full text-left bg-theme-card border border-theme-border rounded-2xl p-5 hover:border-theme-border-strong hover:bg-theme-surface/30 transition-all duration-200">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-2.5">
-          <span
-            className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5"
-            style={{ backgroundColor: client.color }}
-          />
-          <span className="text-white font-semibold text-sm leading-tight">{client.name}</span>
+          <span className="w-3 h-3 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: client.color }} />
+          <span className="text-theme-primary font-semibold text-sm leading-tight">{client.name}</span>
         </div>
-        <ArrowRight
-          size={15}
-          className="text-zinc-600 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all mt-0.5 flex-shrink-0"
-        />
+        <ArrowRight size={15} className="text-theme-muted group-hover:text-emerald-500 group-hover:translate-x-0.5 transition-all mt-0.5 flex-shrink-0" />
       </div>
 
       {!hasMonth ? (
-        /* Sem planejamento */
-        <div className="flex items-center gap-2 py-3 text-zinc-600">
+        <div className="flex items-center gap-2 py-3 text-theme-muted">
           <AlertCircle size={14} />
           <span className="text-xs">Sem planejamento para este mês</span>
         </div>
       ) : (
         <>
-          {/* Barra de progresso */}
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-zinc-500">
-                {postedItems} / {totalItems} postados
-              </span>
-              <span className={`text-xs font-semibold ${pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-zinc-400'}`}>
+              <span className="text-xs text-theme-secondary">{postedItems} / {totalItems} postados</span>
+              <span className={`text-xs font-semibold ${pct >= 80 ? 'text-emerald-500' : pct >= 50 ? 'text-amber-500' : 'text-theme-secondary'}`}>
                 {pct}%
               </span>
             </div>
-            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-zinc-500'
-                }`}
-                style={{ width: `${pct}%` }}
-              />
+            <div className="h-1.5 bg-theme-surface rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-500 ${pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-zinc-500'}`}
+                style={{ width: `${pct}%` }} />
             </div>
           </div>
-
-          {/* Status pills */}
           <div className="flex flex-wrap gap-1.5">
             {VISIBLE_STATUSES.map(status => {
               const count = statusCounts[status]
               if (!count) return null
               const cfg = STATUS_CONFIG[status]
               return (
-                <span
-                  key={status}
-                  className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-zinc-800 ${cfg.color}`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.bg}`} />
-                  {count}
+                <span key={status} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md bg-theme-surface ${cfg.color}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.bg}`} />{count}
                 </span>
               )
             })}
           </div>
-
-          {/* Rodapé */}
-          <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-1.5 text-zinc-600">
-            <CalendarDays size={11} />
-            <span className="text-xs">{totalDays} dias planejados</span>
+          <div className="mt-3 pt-3 border-t border-theme-border">
+            <span className="text-xs text-theme-muted">{totalDays} dias planejados</span>
           </div>
         </>
       )}
@@ -136,240 +170,426 @@ function ClientCard({ summary, onClick }: { summary: ClientSummary; onClick: () 
   )
 }
 
-// ─── Página principal ─────────────────────────────────────────────────────────
-// ─── Cor de célula da tabela (status mais crítico vence) ─────────────────────
-const STATUS_PRIORITY: NonNullable<DayEntryStatus>[] = [
-  'CORRECAO', 'AGUARDANDO', 'VALIDACAO', 'ANDAMENTO', 'A_FAZER', 'POSTADO', 'CANCELADO',
-]
-const CELL_COLOR: Record<NonNullable<DayEntryStatus>, string> = {
-  CORRECAO:   'bg-red-500/80',
-  AGUARDANDO: 'bg-amber-500/80',
-  VALIDACAO:  'bg-purple-500/70',
-  ANDAMENTO:  'bg-blue-500/70',
-  A_FAZER:    'bg-zinc-600/60',
-  POSTADO:    'bg-emerald-500/80',
-  CANCELADO:  'bg-zinc-800',
-}
-function cellColor(cell: DayCell | undefined): string {
-  if (!cell) return ''
-  const statuses = [cell.s, cell.f, cell.a].filter(Boolean) as NonNullable<DayEntryStatus>[]
-  if (!statuses.length) return ''
-  for (const p of STATUS_PRIORITY) {
-    if (statuses.includes(p)) return CELL_COLOR[p]
-  }
-  return ''
-}
-
-// ─── Tabela clientes × dias ───────────────────────────────────────────────────
-function TabelaView({
-  summaries,
-  monthRef,
-  onNavigate,
-}: {
-  summaries: ClientSummary[]
-  monthRef: string
+// ─── Kanban global ────────────────────────────────────────────────────────────
+function KanbanGlobal({ items, onEdit, onNavigate }: {
+  items: KanbanItem[]
+  onEdit: (e: DayEntry) => void
   onNavigate: (clientId: string) => void
 }) {
-  const [y, m] = monthRef.split('-').map(Number)
-  const daysInMonth = new Date(y, m, 0).getDate()
-  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
-  const today = new Date().getDate()
-  const isCurrentMonth = monthRef === currentMonthRef()
+  const byStatus = new Map<DayEntryStatus, KanbanItem[]>()
+  for (const col of KANBAN_COLUMNS) byStatus.set(col.status, [])
+  for (const item of items) {
+    const key = item.status ?? 'A_FAZER'
+    if (!byStatus.has(key)) byStatus.set(key, [])
+    byStatus.get(key)!.push(item)
+  }
+  const visibleColumns = KANBAN_COLUMNS.filter(col =>
+    col.status === 'CANCELADO' ? (byStatus.get('CANCELADO')?.length ?? 0) > 0 : true
+  )
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-zinc-800">
-      <table className="w-full border-collapse text-xs">
-        <thead>
-          <tr className="bg-zinc-900 border-b border-zinc-800">
-            <th className="sticky left-0 z-10 bg-zinc-900 px-4 py-3 text-left text-zinc-500 font-medium min-w-[140px]">
-              Cliente
-            </th>
-            {days.map(d => (
-              <th
-                key={d}
-                className={`px-1 py-3 text-center font-medium w-8 min-w-[28px] ${
-                  isCurrentMonth && d === today ? 'text-emerald-400' : 'text-zinc-600'
-                }`}
-              >
-                {d}
-              </th>
-            ))}
-            <th className="px-3 py-3 text-right text-zinc-500 font-medium whitespace-nowrap">%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summaries.map((s, i) => {
-            const pct = s.totalItems > 0 ? Math.round((s.postedItems / s.totalItems) * 100) : 0
-            return (
-              <tr
-                key={s.client.id}
-                className={`border-b border-zinc-800 hover:bg-zinc-800/30 cursor-pointer transition-colors ${
-                  i % 2 === 0 ? 'bg-zinc-950' : 'bg-zinc-900/30'
-                }`}
-                onClick={() => onNavigate(s.client.id)}
-              >
-                {/* Nome do cliente */}
-                <td className="sticky left-0 z-10 bg-inherit px-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.client.color }} />
-                    <span className="text-zinc-300 font-medium truncate max-w-[100px]">{s.client.name}</span>
-                  </div>
-                </td>
-
-                {/* Células por dia */}
-                {days.map(d => {
-                  const dateStr = `${monthRef}-${String(d).padStart(2, '0')}`
-                  const cell = s.dayData[dateStr]
-                  const color = cellColor(cell)
-                  return (
-                    <td key={d} className="px-0.5 py-1.5 text-center">
-                      {color ? (
-                        <span
-                          className={`inline-block w-5 h-5 rounded ${color}`}
-                          title={dateStr}
-                        />
-                      ) : (
-                        <span className="inline-block w-5 h-5 rounded bg-zinc-800/40" />
-                      )}
-                    </td>
-                  )
-                })}
-
-                {/* % postado */}
-                <td className="px-3 py-2 text-right">
-                  <span className={`font-semibold ${pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-zinc-500'}`}>
-                    {s.hasMonth ? `${pct}%` : '—'}
-                  </span>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-
-      {/* Legenda */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-t border-zinc-800 bg-zinc-900/50 flex-wrap">
-        <span className="text-xs text-zinc-600">Status da célula (prioridade):</span>
-        {([
-          ['Correção',   'bg-red-500/80'    ],
-          ['Aguardando', 'bg-amber-500/80'  ],
-          ['Validação',  'bg-purple-500/70' ],
-          ['Andamento',  'bg-blue-500/70'   ],
-          ['A Fazer',    'bg-zinc-600/60'   ],
-          ['Postado',    'bg-emerald-500/80'],
-        ] as const).map(([label, cls]) => (
-          <span key={label} className="flex items-center gap-1 text-xs text-zinc-500">
-            <span className={`w-3 h-3 rounded ${cls}`} />{label}
-          </span>
-        ))}
-      </div>
+    <div className="flex gap-3 overflow-x-auto pb-4 items-start">
+      {visibleColumns.map(col => {
+        const colItems = byStatus.get(col.status) ?? []
+        return (
+          <div key={col.status ?? 'null'} className="flex-shrink-0 w-[240px] flex flex-col">
+            <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 ${col.accent}`}>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
+              <span className="text-xs font-medium text-theme-secondary flex-1">{col.label}</span>
+              {colItems.length > 0 && <span className="text-xs text-theme-muted font-mono">{colItems.length}</span>}
+            </div>
+            <div className={`flex-1 rounded-b-xl border ${col.accent} bg-theme-bg/50 p-2 space-y-2 min-h-[120px]`}>
+              {colItems.length === 0
+                ? <div className="flex items-center justify-center h-20"><span className="text-xs text-theme-muted">—</span></div>
+                : colItems.map(item => {
+                    const typeCfg = TYPE_CONFIG[item.type]
+                    return (
+                      <div key={item.key} className="group bg-theme-card border border-theme-border rounded-xl p-3 hover:border-theme-border-strong transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.client.color }} />
+                            <span className="text-xs text-theme-muted truncate max-w-[90px]">{item.client.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <span className={`w-1.5 h-1.5 rounded-full ${typeCfg.dot}`} />
+                            <span className={`text-xs font-medium ${typeCfg.color}`}>{typeCfg.label}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-theme-secondary leading-relaxed line-clamp-3 min-h-[2.5rem]">
+                          {item.content ?? <span className="text-theme-muted italic">Sem descrição</span>}
+                        </p>
+                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-theme-border">
+                          <span className="text-xs text-theme-muted">{formatDay(item.entry)}</span>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => onEdit(item.entry)}
+                              className="text-theme-muted hover:text-emerald-500 p-0.5 rounded transition-colors" title="Editar">
+                              <Pencil size={11} />
+                            </button>
+                            <button onClick={() => onNavigate(item.client.id)}
+                              className="text-theme-muted hover:text-blue-500 p-0.5 rounded transition-colors" title="Ver cliente">
+                              <ArrowRight size={11} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
 
+// ─── Global Lista ─────────────────────────────────────────────────────────────
+function GlobalListaView({ summaries, fullEntries, onRefresh }: {
+  summaries: ClientSummary[]
+  fullEntries: DayEntry[]
+  onRefresh: () => void
+}) {
+  const byClient = useMemo(() => {
+    const map = new Map<string, DayEntry[]>()
+    for (const e of fullEntries) {
+      if (!map.has(e.client_id)) map.set(e.client_id, [])
+      map.get(e.client_id)!.push(e)
+    }
+    return map
+  }, [fullEntries])
+
+  const withEntries = summaries.filter(s => s.hasMonth && (byClient.get(s.client.id)?.length ?? 0) > 0)
+
+  if (withEntries.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-48">
+        <p className="text-theme-secondary text-sm">Nenhum dia planejado para este mês.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8">
+      {withEntries.map(({ client }) => {
+        const entries = byClient.get(client.id) ?? []
+        return (
+          <div key={client.id}>
+            <div className="flex items-center gap-2.5 mb-3">
+              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: client.color }} />
+              <h3 className="text-sm font-semibold text-theme-primary">{client.name}</h3>
+              <span className="text-xs text-theme-muted">{entries.length} dias planejados</span>
+            </div>
+            <ListaView entries={entries} onRefresh={onRefresh} />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Global Day Panel (Calendário) ────────────────────────────────────────────
+function GlobalDayPanel({ dateStr, entries, clientMap, onClose, onEdit }: {
+  dateStr: string
+  entries: DayEntry[]
+  clientMap: Map<string, Client>
+  onClose: () => void
+  onEdit: (e: DayEntry) => void
+}) {
+  const dt      = new Date(dateStr + 'T12:00:00')
+  const weekDay = WEEK_DAYS[dt.getDay()]
+  const month   = MONTH_NAMES[dt.getMonth()]
+  const day     = dt.getDate()
+  const year    = dt.getFullYear()
+
+  const formats = [
+    { key: 'stories', label: 'Stories', color: 'text-pink-500 dark:text-pink-400' },
+    { key: 'feed',    label: 'Feed',    color: 'text-blue-500 dark:text-blue-400' },
+    { key: 'acoes',   label: 'Ação',    color: 'text-emerald-500 dark:text-emerald-400' },
+  ] as const
+
+  return (
+    <>
+      <div className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px]" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-[460px] max-w-full z-40 bg-theme-card border-l border-theme-border shadow-2xl flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-5 border-b border-theme-border flex-shrink-0">
+          <div>
+            <p className="text-xs text-theme-muted uppercase tracking-widest font-medium mb-1">
+              {weekDay} · {month} {year}
+            </p>
+            <h2 className="text-3xl font-bold text-theme-primary">{day}</h2>
+            <p className="text-xs text-theme-muted mt-1">
+              {entries.length} cliente{entries.length !== 1 ? 's' : ''} com planejamento
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="p-1.5 rounded-lg text-theme-muted hover:text-theme-primary hover:bg-theme-surface transition-colors mt-1">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Entries */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {entries.length === 0 ? (
+            <div className="flex items-center justify-center h-32">
+              <p className="text-sm text-theme-muted">Nenhum conteúdo planejado para este dia.</p>
+            </div>
+          ) : entries.map(entry => {
+            const client = clientMap.get(entry.client_id)
+            if (!client) return null
+            const hasAny = formats.some(f =>
+              entry[`${f.key}_status` as keyof DayEntry] || entry[`${f.key}_content` as keyof DayEntry]
+            )
+            return (
+              <div key={entry.id} className="rounded-xl border border-theme-border overflow-hidden">
+                {/* Client header */}
+                <div className="flex items-center justify-between px-4 py-3 bg-theme-surface/50 border-b border-theme-border">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: client.color }} />
+                    <span className="text-sm font-semibold text-theme-primary">{client.name}</span>
+                  </div>
+                  <button onClick={() => onEdit(entry)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-theme-surface hover:bg-theme-raised text-theme-secondary text-xs rounded-lg transition-colors">
+                    <Pencil size={11} />
+                    Editar
+                  </button>
+                </div>
+
+                {/* Formats */}
+                <div className="p-4 space-y-3">
+                  {hasAny ? formats.map(({ key, label, color }) => {
+                    const statusKey  = `${key}_status`  as keyof DayEntry
+                    const contentKey = `${key}_content` as keyof DayEntry
+                    const status  = entry[statusKey]  as DayEntryStatus
+                    const content = entry[contentKey] as string | null
+                    if (!status && !content) return null
+                    return (
+                      <div key={key} className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-semibold ${color}`}>{label}</span>
+                          {status && <StatusBadge status={status} />}
+                        </div>
+                        {content && (
+                          <p className="text-sm text-theme-secondary leading-relaxed">{content}</p>
+                        )}
+                      </div>
+                    )
+                  }) : (
+                    <p className="text-xs text-theme-muted italic">Sem conteúdo descrito.</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── Global Calendar Cell ─────────────────────────────────────────────────────
+function GlobalCalCell({ cell, dayEntries, clientMap, onSelect }: {
+  cell: { date: Date; dateStr: string; isCurrentMonth: boolean }
+  dayEntries: DayEntry[]
+  clientMap: Map<string, Client>
+  onSelect: (dateStr: string) => void
+}) {
+  const { date, dateStr, isCurrentMonth } = cell
+  const isToday = dateStr === new Date().toISOString().split('T')[0]
+  const day = date.getDate()
+
+  const clientsWithContent = isCurrentMonth
+    ? dayEntries
+        .filter(e => e.stories_status || e.feed_status || e.acoes_status || e.stories_content || e.feed_content || e.acoes_content)
+        .map(e => clientMap.get(e.client_id))
+        .filter((c): c is Client => !!c)
+    : []
+
+  return (
+    <div
+      onClick={() => clientsWithContent.length > 0 && onSelect(dateStr)}
+      className={`min-h-[80px] p-2 border-b border-r border-theme-border transition-colors
+        ${isCurrentMonth ? 'bg-theme-bg' : 'bg-theme-surface/20'}
+        ${clientsWithContent.length > 0 ? 'cursor-pointer hover:bg-theme-surface/40' : 'cursor-default'}`}
+    >
+      <div className="mb-2">
+        <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full
+          ${isToday ? 'bg-emerald-500 text-black font-bold' : isCurrentMonth ? 'text-theme-primary' : 'text-theme-muted'}`}>
+          {day}
+        </span>
+      </div>
+      {clientsWithContent.length > 0 && (
+        <div className="flex flex-wrap gap-0.5">
+          {clientsWithContent.slice(0, 6).map((client, i) => (
+            <span key={i} className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: client.color }} title={client.name} />
+          ))}
+          {clientsWithContent.length > 6 && (
+            <span className="text-[10px] text-theme-muted leading-none">+{clientsWithContent.length - 6}</span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Global Calendar View ─────────────────────────────────────────────────────
+function GlobalCalendarView({ fullEntries, clientMap, monthRef, onEdit, onRefresh }: {
+  fullEntries: DayEntry[]
+  clientMap: Map<string, Client>
+  monthRef: string
+  onEdit: (e: DayEntry) => void
+  onRefresh: () => void
+}) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [editingEntry, setEditingEntry] = useState<DayEntry | null>(null)
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, DayEntry[]>()
+    for (const e of fullEntries) {
+      if (!map.has(e.entry_date)) map.set(e.entry_date, [])
+      map.get(e.entry_date)!.push(e)
+    }
+    return map
+  }, [fullEntries])
+
+  const weeks = useMemo(() => buildCalendarWeeks(monthRef), [monthRef])
+
+  // Build legend (clients that have any entry this month)
+  const activeClients = useMemo(() => {
+    const seen = new Set<string>()
+    const list: Client[] = []
+    for (const e of fullEntries) {
+      if (!seen.has(e.client_id)) {
+        seen.add(e.client_id)
+        const c = clientMap.get(e.client_id)
+        if (c) list.push(c)
+      }
+    }
+    return list
+  }, [fullEntries, clientMap])
+
+  return (
+    <>
+      <div className="bg-theme-card rounded-xl border border-theme-border overflow-hidden">
+        {/* Legend */}
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-theme-border bg-theme-card flex-wrap">
+          <span className="text-xs text-theme-muted">Clientes:</span>
+          {activeClients.map(c => (
+            <span key={c.id} className="flex items-center gap-1.5 text-xs text-theme-secondary">
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+              {c.name}
+            </span>
+          ))}
+        </div>
+
+        {/* Week day headers */}
+        <div className="grid grid-cols-7 border-b border-theme-border">
+          {WEEK_DAYS.map(d => (
+            <div key={d} className="py-2 text-center text-xs font-medium text-theme-muted">{d}</div>
+          ))}
+        </div>
+
+        {/* Grid */}
+        {weeks.map((week, wi) => (
+          <div key={wi} className="grid grid-cols-7">
+            {week.map(cell => (
+              <GlobalCalCell
+                key={cell.dateStr}
+                cell={cell}
+                dayEntries={byDate.get(cell.dateStr) ?? []}
+                clientMap={clientMap}
+                onSelect={setSelectedDate}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Day detail panel */}
+      {selectedDate && !editingEntry && (
+        <GlobalDayPanel
+          dateStr={selectedDate}
+          entries={byDate.get(selectedDate) ?? []}
+          clientMap={clientMap}
+          onClose={() => setSelectedDate(null)}
+          onEdit={(e) => { setEditingEntry(e) }}
+        />
+      )}
+
+      {/* Edit modal */}
+      {editingEntry && (
+        <EditEntryModal
+          entry={editingEntry}
+          onClose={() => setEditingEntry(null)}
+          onSaved={() => { setEditingEntry(null); setSelectedDate(null); onRefresh() }}
+        />
+      )}
+    </>
+  )
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+type ViewMode = 'cards' | 'lista' | 'kanban' | 'calendario'
+
 export default function DashboardPage() {
   const router = useRouter()
-  const [monthRef, setMonthRef] = useState(currentMonthRef)
+  const [monthRef,  setMonthRef]  = useState(currentMonthRef)
   const [summaries, setSummaries] = useState<ClientSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [viewMode, setViewMode] = useState<'cards' | 'tabela'>('cards')
+  const [loading,   setLoading]   = useState(true)
+  const [viewMode,  setViewMode]  = useState<ViewMode>('cards')
 
+  // Full entry data (loaded lazily for lista / kanban / calendario)
+  const [fullEntries,  setFullEntries]  = useState<DayEntry[]>([])
+  const [clientMap,    setClientMap]    = useState<Map<string, Client>>(new Map())
+  const [loadingFull,  setLoadingFull]  = useState(false)
+
+  // Edit modal state
+  const [editingEntry, setEditingEntry] = useState<DayEntry | null>(null)
+
+  // ─── Load summaries (cards + lightweight status data) ────────────────────────
   useEffect(() => {
     let cancelled = false
-
     async function load() {
       setLoading(true)
+      setFullEntries([])
       try {
         const supabase = createDataClient()
-
-        // 1. Busca todos os clientes
-        const { data: clients } = await supabase
-          .from('clients')
-          .select('id, name, color')
-          .order('name')
-
+        const { data: clients } = await supabase.from('clients').select('id, name, color').order('name')
         if (!clients || cancelled) return
 
-        // 2. Busca todos os month_lists para o mês selecionado
-        const { data: monthLists } = await supabase
-          .from('month_lists')
-          .select('id, client_id, month_ref')
-          .eq('month_ref', monthRef)
+        const { data: monthLists } = await supabase.from('month_lists').select('id, client_id, month_ref').eq('month_ref', monthRef)
+        const mlMap = new Map<string, string>()
+        for (const ml of monthLists ?? []) mlMap.set(ml.client_id, ml.id)
 
-        const monthListMap = new Map<string, string>() // client_id → month_list_id
-        for (const ml of monthLists ?? []) {
-          monthListMap.set(ml.client_id, ml.id)
-        }
+        const mlIds = Array.from(mlMap.values())
+        const buckets = new Map<string, { statuses: DayEntryStatus[] }>()
 
-        // 3. Busca todas as day_entries dos month_lists encontrados
-        const monthListIds = Array.from(monthListMap.values())
-        type Bucket = { statuses: DayEntryStatus[]; days: Record<string, DayCell> }
-        const entriesByMonthList = new Map<string, Bucket>()
-
-        if (monthListIds.length > 0) {
+        if (mlIds.length > 0) {
           const { data: entries } = await supabase
             .from('day_entries')
-            .select('month_list_id, entry_date, stories_status, feed_status, acoes_status')
-            .in('month_list_id', monthListIds)
-
-          for (const entry of entries ?? []) {
-            const key = entry.month_list_id
-            if (!entriesByMonthList.has(key)) {
-              entriesByMonthList.set(key, { statuses: [], days: {} })
-            }
-            const bucket = entriesByMonthList.get(key)!
-            bucket.statuses.push(entry.stories_status, entry.feed_status, entry.acoes_status)
-            bucket.days[entry.entry_date] = {
-              s: entry.stories_status,
-              f: entry.feed_status,
-              a: entry.acoes_status,
-            }
+            .select('month_list_id, stories_status, feed_status, acoes_status')
+            .in('month_list_id', mlIds)
+          for (const e of entries ?? []) {
+            const key = e.month_list_id
+            if (!buckets.has(key)) buckets.set(key, { statuses: [] })
+            buckets.get(key)!.statuses.push(e.stories_status, e.feed_status, e.acoes_status)
           }
         }
 
-        // 4. Monta resumo por cliente
         const result: ClientSummary[] = clients.map(client => {
-          const mlId = monthListMap.get(client.id)
-          if (!mlId) {
-            return {
-              client,
-              monthRef,
-              hasMonth: false,
-              totalItems: 0,
-              postedItems: 0,
-              statusCounts: {},
-              totalDays: 0,
-              dayData: {},
-            }
-          }
-
-          const bucket = entriesByMonthList.get(mlId)
-          const allStatuses = bucket?.statuses ?? []
+          const mlId = mlMap.get(client.id)
+          if (!mlId) return { client, monthRef, hasMonth: false, totalItems: 0, postedItems: 0, statusCounts: {}, totalDays: 0 }
+          const allStatuses = buckets.get(mlId)?.statuses ?? []
           const statusCounts: StatusCounts = {}
-          let totalItems = 0
-          let postedItems = 0
-          let totalDays = 0
-
-          // Conta entradas (cada 3 statuses = 1 dia)
-          totalDays = allStatuses.length / 3
-
+          let totalItems = 0, postedItems = 0
           for (const s of allStatuses) {
             if (!s || s === 'CANCELADO') continue
             statusCounts[s] = (statusCounts[s] ?? 0) + 1
             totalItems++
             if (s === 'POSTADO') postedItems++
           }
-
-          return {
-            client,
-            monthRef,
-            hasMonth: true,
-            totalItems,
-            postedItems,
-            statusCounts,
-            totalDays,
-            dayData: bucket?.days ?? {},
-          }
+          return { client, monthRef, hasMonth: true, totalItems, postedItems, statusCounts, totalDays: allStatuses.length / 3 }
         })
 
         if (!cancelled) setSummaries(result)
@@ -377,120 +597,213 @@ export default function DashboardPage() {
         if (!cancelled) setLoading(false)
       }
     }
-
     load()
     return () => { cancelled = true }
   }, [monthRef])
 
-  const withMonth = summaries.filter(s => s.hasMonth)
+  // ─── Load full entries (lista / kanban / calendario) ─────────────────────────
+  const loadFull = useCallback(async () => {
+    setLoadingFull(true)
+    try {
+      const supabase = createDataClient()
+      const { data: monthLists } = await supabase.from('month_lists').select('id, client_id').eq('month_ref', monthRef)
+      if (!monthLists?.length) { setFullEntries([]); return }
+
+      const mlIds = monthLists.map(ml => ml.id)
+      const newClientMap = new Map<string, Client>()
+      for (const s of summaries) newClientMap.set(s.client.id, s.client)
+      const mlToClient = new Map(monthLists.map(ml => [ml.id, ml.client_id]))
+
+      const { data: rawEntries } = await supabase
+        .from('day_entries')
+        .select('*')
+        .in('month_list_id', mlIds)
+        .order('entry_date')
+
+      // Ensure client_id is set correctly from the month_list → client mapping
+      const entries: DayEntry[] = (rawEntries ?? []).map(e => ({
+        ...e,
+        client_id: mlToClient.get(e.month_list_id) ?? e.client_id,
+      })) as DayEntry[]
+
+      setFullEntries(entries)
+      setClientMap(newClientMap)
+    } finally {
+      setLoadingFull(false)
+    }
+  }, [monthRef, summaries])
+
+  // Load full data when switching to a view that needs it
+  useEffect(() => {
+    if (!loading && (viewMode === 'lista' || viewMode === 'kanban' || viewMode === 'calendario') && fullEntries.length === 0) {
+      loadFull()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, loading])
+
+  // Reset full data when month changes
+  useEffect(() => {
+    if (viewMode !== 'cards') setFullEntries([])
+  }, [monthRef, viewMode])
+
+  // Derived kanban items
+  const kanbanItems = useMemo<KanbanItem[]>(() => {
+    const items: KanbanItem[] = []
+    for (const entry of fullEntries) {
+      const client = clientMap.get(entry.client_id)
+      if (!client) continue
+      const pieces: ['stories' | 'feed' | 'acoes', string | null, DayEntryStatus, string | null][] = [
+        ['stories', entry.stories_content, entry.stories_status, entry.stories_format],
+        ['feed',    entry.feed_content,    entry.feed_status,    entry.feed_format   ],
+        ['acoes',   entry.acoes_content,   entry.acoes_status,   entry.acoes_format  ],
+      ]
+      for (const [type, content, status, format] of pieces) {
+        if (!status && !content) continue
+        const cfg = TYPE_CONFIG[type]
+        items.push({ key: `${entry.id}-${type}`, client, entry, type, typeLabel: cfg.label,
+          typeDot: cfg.dot, typeColor: cfg.color, content, status, format })
+      }
+    }
+    return items
+  }, [fullEntries, clientMap])
+
+  const withMonth    = summaries.filter(s => s.hasMonth)
   const withoutMonth = summaries.filter(s => !s.hasMonth)
-  const totalPosted = withMonth.reduce((a, s) => a + s.postedItems, 0)
-  const totalItems  = withMonth.reduce((a, s) => a + s.totalItems, 0)
-  const globalPct   = totalItems > 0 ? Math.round((totalPosted / totalItems) * 100) : 0
+  const totalPosted  = withMonth.reduce((a, s) => a + s.postedItems, 0)
+  const totalItems   = withMonth.reduce((a, s) => a + s.totalItems, 0)
+  const globalPct    = totalItems > 0 ? Math.round((totalPosted / totalItems) * 100) : 0
+
+  const needsFullLoad = viewMode !== 'cards'
+  const isFullLoading = loadingFull || (needsFullLoad && !loading && fullEntries.length === 0 && withMonth.length > 0)
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Topbar ── */}
-      <div className="flex items-center justify-between px-8 py-5 border-b border-zinc-800 flex-shrink-0">
-        <div>
-          <h1 className="text-lg font-semibold text-white">Todos os clientes</h1>
-          {!loading && withMonth.length > 0 && (
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {globalPct}% postado no geral · {withMonth.length} clientes com planejamento
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Toggle Cards / Tabela */}
-          <div className="flex items-center bg-zinc-800 rounded-lg p-1 gap-0.5">
-            {([
-              ['cards',  'Cards',  <LayoutGrid   size={15} />],
-              ['tabela', 'Tabela', <CalendarDays size={15} />],
-            ] as const).map(([mode, title, icon]) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                title={title}
-                className={`p-1.5 rounded-md transition-colors ${
-                  viewMode === mode ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                {icon}
-              </button>
-            ))}
-          </div>
-
-          {/* Seletor de mês */}
-          <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMonthRef(r => shiftMonth(r, -1))}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <span className="text-sm text-white font-medium capitalize min-w-[130px] text-center">
-            {formatMonth(monthRef)}
-          </span>
-          <button
-            onClick={() => setMonthRef(r => shiftMonth(r, 1))}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-          >
-            <ChevronRight size={18} />
-          </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Conteúdo ── */}
-      <div className="flex-1 overflow-auto px-8 py-6">
-        {loading ? (
-          <div className="flex items-center justify-center h-48">
-            <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : summaries.length === 0 ? (
-          <p className="text-zinc-500 text-sm text-center mt-16">Nenhum cliente cadastrado.</p>
-        ) : viewMode === 'tabela' ? (
-          <TabelaView
-            summaries={summaries}
-            monthRef={monthRef}
-            onNavigate={(clientId) => router.push(`/${clientId}/${monthRef}`)}
-          />
-        ) : (
-          <>
-            {/* Grid de clientes com planejamento */}
-            {withMonth.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-                {withMonth.map(summary => (
-                  <ClientCard
-                    key={summary.client.id}
-                    summary={summary}
-                    onClick={() => router.push(`/${summary.client.id}/${monthRef}`)}
-                  />
-                ))}
-              </div>
+    <>
+      <div className="flex flex-col h-full">
+        {/* ── Topbar ── */}
+        <div className="flex items-center justify-between px-8 py-5 border-b border-theme-border flex-shrink-0 bg-theme-bg">
+          <div>
+            <h1 className="text-lg font-semibold text-theme-primary">Todos os clientes</h1>
+            {!loading && withMonth.length > 0 && (
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {globalPct}% postado no geral · {withMonth.length} clientes com planejamento
+              </p>
             )}
+          </div>
 
-            {/* Clientes sem planejamento */}
-            {withoutMonth.length > 0 && (
-              <div>
-                <p className="text-xs text-zinc-600 uppercase tracking-wider font-medium mb-3">
-                  Sem planejamento em {formatMonth(monthRef)}
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {withoutMonth.map(summary => (
-                    <ClientCard
-                      key={summary.client.id}
-                      summary={summary}
-                      onClick={() => router.push(`/${summary.client.id}/${monthRef}`)}
-                    />
+          <div className="flex items-center gap-3">
+            {/* View toggle */}
+            <div className="flex items-center bg-theme-surface rounded-lg p-1 gap-0.5">
+              {([
+                ['cards',      'Visão Geral', <LayoutGrid   size={15} />],
+                ['lista',      'Lista',       <LayoutList   size={15} />],
+                ['kanban',     'Kanban',      <Columns3     size={15} />],
+                ['calendario', 'Calendário',  <CalendarDays size={15} />],
+              ] as const).map(([mode, title, icon]) => (
+                <button key={mode} onClick={() => setViewMode(mode)} title={title}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    viewMode === mode
+                      ? 'bg-theme-card text-theme-primary shadow-sm'
+                      : 'text-zinc-500 hover:text-theme-secondary'
+                  }`}>
+                  {icon}
+                </button>
+              ))}
+            </div>
+
+            {/* Month selector */}
+            <div className="flex items-center gap-2">
+              <button onClick={() => setMonthRef(r => shiftMonth(r, -1))}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-theme-primary hover:bg-theme-surface transition-colors">
+                <ChevronLeft size={18} />
+              </button>
+              <span className="text-sm text-theme-primary font-medium capitalize min-w-[130px] text-center">
+                {formatMonth(monthRef)}
+              </span>
+              <button onClick={() => setMonthRef(r => shiftMonth(r, 1))}
+                className="p-1.5 rounded-lg text-zinc-500 hover:text-theme-primary hover:bg-theme-surface transition-colors">
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Content ── */}
+        <div className="flex-1 overflow-auto px-8 py-6 bg-theme-bg">
+          {loading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+
+          ) : summaries.length === 0 ? (
+            <p className="text-zinc-500 text-sm text-center mt-16">Nenhum cliente cadastrado.</p>
+
+          ) : viewMode === 'cards' ? (
+            <>
+              {withMonth.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+                  {withMonth.map(s => (
+                    <ClientCard key={s.client.id} summary={s}
+                      onClick={() => router.push(`/${s.client.id}/${monthRef}`)} />
                   ))}
                 </div>
+              )}
+              {withoutMonth.length > 0 && (
+                <div>
+                  <p className="text-xs text-theme-muted uppercase tracking-wider font-medium mb-3">
+                    Sem planejamento em {formatMonth(monthRef)}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {withoutMonth.map(s => (
+                      <ClientCard key={s.client.id} summary={s}
+                        onClick={() => router.push(`/${s.client.id}/${monthRef}`)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+
+          ) : isFullLoading ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+
+          ) : viewMode === 'lista' ? (
+            <GlobalListaView summaries={summaries} fullEntries={fullEntries} onRefresh={loadFull} />
+
+          ) : viewMode === 'kanban' ? (
+            kanbanItems.length === 0 ? (
+              <div className="flex items-center justify-center h-48">
+                <p className="text-theme-secondary text-sm">Nenhum conteúdo planejado para {formatMonth(monthRef)}.</p>
               </div>
-            )}
-          </>
-        )}
+            ) : (
+              <KanbanGlobal items={kanbanItems} onEdit={setEditingEntry}
+                onNavigate={(id) => router.push(`/${id}/${monthRef}`)} />
+            )
+
+          ) : (
+            /* ── Calendário global ── */
+            fullEntries.length === 0 ? (
+              <div className="flex items-center justify-center h-48">
+                <p className="text-theme-secondary text-sm">Nenhum conteúdo planejado para {formatMonth(monthRef)}.</p>
+              </div>
+            ) : (
+              <GlobalCalendarView
+                fullEntries={fullEntries}
+                clientMap={clientMap}
+                monthRef={monthRef}
+                onEdit={setEditingEntry}
+                onRefresh={loadFull}
+              />
+            )
+          )}
+        </div>
       </div>
-    </div>
+
+      {editingEntry && (
+        <EditEntryModal entry={editingEntry}
+          onClose={() => setEditingEntry(null)}
+          onSaved={() => { setEditingEntry(null); loadFull() }} />
+      )}
+    </>
   )
 }

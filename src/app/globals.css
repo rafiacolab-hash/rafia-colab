@@ -2,26 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Tokens de tema — Modo Claro (padrão) ─────────────────────────────────── */
 :root {
+  --t-bg:            255 255 255;   /* white */
+  --t-card:          250 250 250;   /* zinc-50 */
+  --t-surface:       244 244 245;   /* zinc-100 */
+  --t-raised:        228 228 231;   /* zinc-200 */
+  --t-border:        228 228 231;   /* zinc-200 */
+  --t-border-strong: 212 212 216;   /* zinc-300 */
+  --t-primary:       9   9   11;    /* zinc-900 */
+  --t-secondary:     82  82  91;    /* zinc-600 */
+  --t-muted:         161 161 170;   /* zinc-400 */
+
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #09090b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ─── Tokens de tema — Modo Escuro ─────────────────────────────────────────── */
+.dark {
+  --t-bg:            9   9   11;    /* zinc-950 */
+  --t-card:          24  24  27;    /* zinc-900 */
+  --t-surface:       39  39  42;    /* zinc-800 */
+  --t-raised:        63  63  70;    /* zinc-700 */
+  --t-border:        39  39  42;    /* zinc-800 */
+  --t-border-strong: 63  63  70;    /* zinc-700 */
+  --t-primary:       255 255 255;   /* white */
+  --t-secondary:     161 161 170;   /* zinc-400 */
+  --t-muted:         113 113 122;   /* zinc-500 */
+
+  --background: #09090b;
+  --foreground: #ededed;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: rgb(var(--t-primary));
+  background: rgb(var(--t-bg));
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+  .text-balance { text-wrap: balance; }
 }

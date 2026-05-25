@@ -86,14 +86,14 @@ function UserModal({ user, clients, onClose, onSaved }: ModalProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
       onClick={handleBackdrop}
     >
-      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl">
+      <div className="w-full max-w-md bg-theme-bg border border-theme-border rounded-2xl shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
-          <h2 className="text-white font-semibold text-base">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-theme-border">
+          <h2 className="text-theme-primary font-semibold text-base">
             {isNew ? 'Novo usuário' : 'Editar usuário'}
           </h2>
           <button onClick={onClose} disabled={saving}
-            className="text-zinc-500 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-zinc-800">
+            className="text-zinc-500 hover:text-theme-primary transition-colors p-1.5 rounded-lg hover:bg-theme-surface">
             <X size={18} />
           </button>
         </div>
@@ -106,7 +106,7 @@ function UserModal({ user, clients, onClose, onSaved }: ModalProps) {
             <input
               value={name} onChange={e => setName(e.target.value)}
               placeholder="Ex: Robson Camargo"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-700 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+              className="w-full bg-theme-card border border-theme-border-strong rounded-lg px-3 py-2 text-sm text-theme-primary placeholder-zinc-700 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
             />
           </div>
 
@@ -117,9 +117,9 @@ function UserModal({ user, clients, onClose, onSaved }: ModalProps) {
               <input
                 type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="usuario@exemplo.com"
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-700 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                className="w-full bg-theme-card border border-theme-border-strong rounded-lg px-3 py-2 text-sm text-theme-primary placeholder-zinc-700 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
               />
-              <p className="text-xs text-zinc-600">
+              <p className="text-xs text-theme-muted">
                 O usuário receberá um convite por e-mail para definir a senha.
               </p>
             </div>
@@ -137,7 +137,7 @@ function UserModal({ user, clients, onClose, onSaved }: ModalProps) {
                   className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-medium transition-all ${
                     role === r
                       ? `${cfg.bg} ${cfg.color}`
-                      : 'border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400'
+                      : 'border-theme-border text-theme-muted hover:border-theme-border-strong hover:text-theme-secondary'
                   }`}
                 >
                   {cfg.icon}
@@ -154,7 +154,7 @@ function UserModal({ user, clients, onClose, onSaved }: ModalProps) {
               <select
                 value={clientId}
                 onChange={e => setClientId(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                className="w-full bg-theme-card border border-theme-border-strong rounded-lg px-3 py-2 text-sm text-theme-primary focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
               >
                 <option value="">— Selecione um cliente —</option>
                 {clients.map(c => (
@@ -172,9 +172,9 @@ function UserModal({ user, clients, onClose, onSaved }: ModalProps) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-zinc-800">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-theme-border">
           <button onClick={onClose} disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50">
+            className="px-4 py-2 rounded-lg text-sm text-theme-secondary hover:text-theme-primary hover:bg-theme-surface transition-colors disabled:opacity-50">
             Cancelar
           </button>
           <button onClick={handleSave} disabled={saving}
@@ -238,14 +238,14 @@ export default function AdminUsersPage() {
     <>
       <div className="flex flex-col h-full">
         {/* Topbar */}
-        <div className="flex items-center justify-between px-8 py-5 border-b border-zinc-800 flex-shrink-0">
+        <div className="flex items-center justify-between px-8 py-5 border-b border-theme-border flex-shrink-0">
           <div>
-            <h1 className="text-lg font-semibold text-white">Usuários</h1>
+            <h1 className="text-lg font-semibold text-theme-primary">Usuários</h1>
             <p className="text-xs text-zinc-500 mt-0.5">{users.length} usuários cadastrados</p>
           </div>
           <button
             onClick={() => setEditUser(null)}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-theme-primary text-sm font-medium rounded-lg transition-colors"
           >
             <Plus size={15} /> Novo usuário
           </button>
@@ -270,12 +270,12 @@ export default function AdminUsersPage() {
                       {cfg.label}s — {group.length}
                     </p>
                   </div>
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                  <div className="bg-theme-card border border-theme-border rounded-xl overflow-hidden">
                     {group.map((user, idx) => (
                       <div
                         key={user.id}
-                        className={`flex items-center gap-4 px-5 py-3.5 hover:bg-zinc-800/40 transition-colors ${
-                          idx < group.length - 1 ? 'border-b border-zinc-800' : ''
+                        className={`flex items-center gap-4 px-5 py-3.5 hover:bg-theme-surface/40 transition-colors ${
+                          idx < group.length - 1 ? 'border-b border-theme-border' : ''
                         }`}
                       >
                         {/* Avatar */}
@@ -285,8 +285,8 @@ export default function AdminUsersPage() {
 
                         {/* Info */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-white text-sm font-medium truncate">{user.name}</p>
-                          <p className="text-zinc-600 text-xs font-mono truncate">{user.id.slice(0, 16)}…</p>
+                          <p className="text-theme-primary text-sm font-medium truncate">{user.name}</p>
+                          <p className="text-theme-muted text-xs font-mono truncate">{user.id.slice(0, 16)}…</p>
                         </div>
 
                         {/* Cliente vinculado (para role=client) */}
@@ -298,7 +298,7 @@ export default function AdminUsersPage() {
                                   className="w-2 h-2 rounded-full flex-shrink-0"
                                   style={{ backgroundColor: (user.client as Client).color }}
                                 />
-                                <span className="text-xs text-zinc-400 truncate max-w-[120px]">
+                                <span className="text-xs text-theme-secondary truncate max-w-[120px]">
                                   {(user.client as Client).name}
                                 </span>
                               </>
@@ -311,7 +311,7 @@ export default function AdminUsersPage() {
                         {/* Botão editar */}
                         <button
                           onClick={() => setEditUser(user)}
-                          className="text-zinc-600 hover:text-emerald-400 transition-colors p-1.5 rounded-lg hover:bg-zinc-800 flex-shrink-0"
+                          className="text-theme-muted hover:text-emerald-400 transition-colors p-1.5 rounded-lg hover:bg-theme-surface flex-shrink-0"
                           title="Editar"
                         >
                           <Pencil size={14} />
