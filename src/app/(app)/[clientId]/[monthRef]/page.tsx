@@ -11,6 +11,7 @@ import KanbanView from '@/components/KanbanView'
 import CalendarView from '@/components/CalendarView'
 import StatsBar from '@/components/StatsBar'
 import GenerateMonthModal from '@/components/GenerateMonthModal'
+import PdfExportButton from '@/components/PdfExportButton'
 
 type ViewMode = 'lista' | 'kanban' | 'calendario'
 
@@ -97,6 +98,10 @@ export default function ClientMonthPage({ params }: Props) {
               </button>
             ))}
           </div>
+
+          {entries.length > 0 && (
+            <PdfExportButton entries={entries} clientName={clientName} monthRef={monthRef} />
+          )}
 
           {canManage && (
             <button onClick={() => setShowModal(true)}
