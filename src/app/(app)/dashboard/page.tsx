@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, ArrowRight, AlertCircle,
   LayoutGrid, LayoutList, Columns3, CalendarDays,
-  Pencil, X, ChevronDown, Filter,
+  Pencil, X, ChevronDown, Filter, Check,
 } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
 import type { DayEntryStatus, DayEntry } from '@/app/lib/entries'
@@ -171,11 +171,41 @@ function ClientCard({ summary, onClick }: { summary: ClientSummary; onClick: () 
 }
 
 // ─── Kanban global ────────────────────────────────────────────────────────────
-function KanbanGlobal({ items, onEdit, onNavigate }: {
+const STATUS_FIELD_MAP: Record<'stories' | 'feed' | 'acoes', string> = {
+  stories: 'stories_status',
+  feed:    'feed_status',
+  acoes:   'acoes_status',
+}
+
+function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
   items: KanbanItem[]
   onEdit: (e: DayEntry) => void
   onNavigate: (clientId: string) => void
+  onRefresh: () => void
 }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
+
+  const selectionMode = selected.size > 0
+
+  const toggleSelect = (key: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  const handleBulkStatus = async (newStatus: DayEntryStatus) => {
+    setBulkSaving(true); setBulkOpen(false)
+    const supabase = createDataClient()
+    const toUpdate = items.filter(i => selected.has(i.key))
+    await Promise.all(toUpdate.map(item =>
+      supabase.from('day_entries')
+        .update({ [STATUS_FIELD_MAP[item.type]]: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', item.entry.id)
+    ))
+    setBulkSaving(false)
+    setSelected(new Set())
+    onRefresh()
+  }
+
   const byStatus = new Map<DayEntryStatus, KanbanItem[]>()
   for (const col of KANBAN_COLUMNS) byStatus.set(col.status, [])
   for (const item of items) {
@@ -188,57 +218,114 @@ function KanbanGlobal({ items, onEdit, onNavigate }: {
   )
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 items-start">
-      {visibleColumns.map(col => {
-        const colItems = byStatus.get(col.status) ?? []
-        return (
-          <div key={col.status ?? 'null'} className="flex-shrink-0 w-[240px] flex flex-col">
-            <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 ${col.accent}`}>
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
-              <span className="text-xs font-medium text-theme-secondary flex-1">{col.label}</span>
-              {colItems.length > 0 && <span className="text-xs text-theme-muted font-mono">{colItems.length}</span>}
-            </div>
-            <div className={`flex-1 rounded-b-xl border ${col.accent} bg-theme-bg/50 p-2 space-y-2 min-h-[120px]`}>
-              {colItems.length === 0
-                ? <div className="flex items-center justify-center h-20"><span className="text-xs text-theme-muted">—</span></div>
-                : colItems.map(item => {
-                    const typeCfg = TYPE_CONFIG[item.type]
-                    return (
-                      <div key={item.key} className="group bg-theme-card border border-theme-border rounded-xl p-3 hover:border-theme-border-strong transition-colors">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.client.color }} />
-                            <span className="text-xs text-theme-muted truncate max-w-[90px]">{item.client.name}</span>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <span className={`w-1.5 h-1.5 rounded-full ${typeCfg.dot}`} />
-                            <span className={`text-xs font-medium ${typeCfg.color}`}>{typeCfg.label}</span>
+    <>
+      <div className="flex gap-3 overflow-x-auto pb-16 items-start">
+        {visibleColumns.map(col => {
+          const colItems = byStatus.get(col.status) ?? []
+          const selectedInCol = colItems.filter(i => selected.has(i.key)).length
+          return (
+            <div key={col.status ?? 'null'} className="flex-shrink-0 w-[240px] flex flex-col">
+              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 ${col.accent}`}>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
+                <span className="text-xs font-medium text-theme-secondary flex-1">{col.label}</span>
+                <div className="flex items-center gap-1.5">
+                  {selectedInCol > 0 && <span className="text-[10px] text-emerald-500 font-bold">{selectedInCol}✓</span>}
+                  {colItems.length > 0 && <span className="text-xs text-theme-muted font-mono">{colItems.length}</span>}
+                </div>
+              </div>
+              <div className={`flex-1 rounded-b-xl border ${col.accent} bg-theme-bg/50 p-2 space-y-2 min-h-[120px]`}>
+                {colItems.length === 0
+                  ? <div className="flex items-center justify-center h-20"><span className="text-xs text-theme-muted">—</span></div>
+                  : colItems.map(item => {
+                      const typeCfg = TYPE_CONFIG[item.type]
+                      const isSelected = selected.has(item.key)
+                      return (
+                        <div
+                          key={item.key}
+                          onClick={() => selectionMode && toggleSelect(item.key)}
+                          className={`group relative bg-theme-card border rounded-xl p-3 transition-all
+                            ${isSelected ? 'border-emerald-500 bg-emerald-500/5 ring-1 ring-emerald-500/30' : 'border-theme-border hover:border-theme-border-strong'}
+                            ${selectionMode ? 'cursor-pointer' : ''}`}
+                        >
+                          {/* Checkbox */}
+                          <button
+                            onClick={e => { e.stopPropagation(); toggleSelect(item.key) }}
+                            className={`absolute top-2.5 left-2.5 w-4 h-4 rounded border flex items-center justify-center transition-all
+                              ${isSelected ? 'bg-emerald-500 border-emerald-500' : 'border-theme-border bg-theme-surface opacity-0 group-hover:opacity-100'}
+                              ${selectionMode ? '!opacity-100' : ''}`}
+                          >
+                            {isSelected && <Check size={10} className="text-black" strokeWidth={3} />}
+                          </button>
+
+                          <div className={`transition-all ${isSelected || selectionMode ? 'pl-5' : ''}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.client.color }} />
+                                <span className="text-xs text-theme-muted truncate max-w-[80px]">{item.client.name}</span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <span className={`w-1.5 h-1.5 rounded-full ${typeCfg.dot}`} />
+                                <span className={`text-xs font-medium ${typeCfg.color}`}>{typeCfg.label}</span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-theme-secondary leading-relaxed line-clamp-3 min-h-[2.5rem]">
+                              {item.content ?? <span className="text-theme-muted italic">Sem descrição</span>}
+                            </p>
+                            <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-theme-border">
+                              <span className="text-xs text-theme-muted">{formatDay(item.entry)}</span>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={e => { e.stopPropagation(); onEdit(item.entry) }}
+                                  className="text-theme-muted hover:text-emerald-500 p-0.5 rounded transition-colors" title="Editar">
+                                  <Pencil size={11} />
+                                </button>
+                                <button onClick={e => { e.stopPropagation(); onNavigate(item.client.id) }}
+                                  className="text-theme-muted hover:text-blue-500 p-0.5 rounded transition-colors" title="Ver cliente">
+                                  <ArrowRight size={11} />
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <p className="text-xs text-theme-secondary leading-relaxed line-clamp-3 min-h-[2.5rem]">
-                          {item.content ?? <span className="text-theme-muted italic">Sem descrição</span>}
-                        </p>
-                        <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-theme-border">
-                          <span className="text-xs text-theme-muted">{formatDay(item.entry)}</span>
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => onEdit(item.entry)}
-                              className="text-theme-muted hover:text-emerald-500 p-0.5 rounded transition-colors" title="Editar">
-                              <Pencil size={11} />
-                            </button>
-                            <button onClick={() => onNavigate(item.client.id)}
-                              className="text-theme-muted hover:text-blue-500 p-0.5 rounded transition-colors" title="Ver cliente">
-                              <ArrowRight size={11} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+              </div>
             </div>
+          )
+        })}
+      </div>
+
+      {/* Bulk action bar */}
+      {selectionMode && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-theme-card border border-theme-border-strong rounded-2xl shadow-2xl px-5 py-3">
+          <span className="text-sm font-semibold text-theme-primary whitespace-nowrap">
+            {selected.size} {selected.size === 1 ? 'item selecionado' : 'itens selecionados'}
+          </span>
+          <div className="w-px h-5 bg-theme-border" />
+          <div className="relative">
+            <button onClick={() => setBulkOpen(o => !o)} disabled={bulkSaving}
+              className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-xs font-semibold rounded-lg transition-colors">
+              {bulkSaving ? 'Salvando...' : 'Mover para'}
+              <ChevronDown size={12} className={`transition-transform ${bulkOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {bulkOpen && (
+              <div className="absolute bottom-full mb-2 left-0 bg-theme-card border border-theme-border rounded-xl shadow-xl py-1.5 min-w-[160px] z-10">
+                {KANBAN_COLUMNS.filter(c => c.status !== 'CANCELADO').map(col => (
+                  <button key={col.status} onClick={() => handleBulkStatus(col.status)}
+                    className="w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs text-theme-secondary hover:bg-theme-surface hover:text-theme-primary transition-colors">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
+                    {col.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )
-      })}
-    </div>
+          <button onClick={() => setSelected(new Set())}
+            className="p-1.5 text-theme-muted hover:text-theme-primary hover:bg-theme-surface rounded-lg transition-colors">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -938,7 +1025,8 @@ export default function DashboardPage() {
               </div>
             ) : (
               <KanbanGlobal items={kanbanItems} onEdit={setEditingEntry}
-                onNavigate={(id) => router.push(`/${id}/${monthRef}`)} />
+                onNavigate={(id) => router.push(`/${id}/${monthRef}`)}
+                onRefresh={loadFull} />
             )
 
           ) : (

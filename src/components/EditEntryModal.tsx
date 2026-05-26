@@ -104,10 +104,14 @@ export default function EditEntryModal({ entry, onClose, onSaved }: Props) {
     setSaving(true); setError(null)
     try {
       const supabase = createDataClient()
+      // Auto-define A_FAZER quando há conteúdo mas nenhum status foi selecionado
+      const storiesStatus = form.stories_status ?? (form.stories_content?.trim() ? 'A_FAZER' : null)
+      const feedStatus    = form.feed_status    ?? (form.feed_content?.trim()    ? 'A_FAZER' : null)
+      const acoesStatus   = form.acoes_status   ?? (form.acoes_content?.trim()   ? 'A_FAZER' : null)
       const { error: err } = await supabase.from('day_entries').update({
-        stories_content: form.stories_content || null, stories_status: form.stories_status, stories_format: form.stories_format || null,
-        feed_content:    form.feed_content    || null, feed_status:    form.feed_status,    feed_format:    form.feed_format    || null,
-        acoes_content:   form.acoes_content   || null, acoes_status:   form.acoes_status,   acoes_format:   form.acoes_format   || null,
+        stories_content: form.stories_content || null, stories_status: storiesStatus, stories_format: form.stories_format || null,
+        feed_content:    form.feed_content    || null, feed_status:    feedStatus,    feed_format:    form.feed_format    || null,
+        acoes_content:   form.acoes_content   || null, acoes_status:   acoesStatus,   acoes_format:   form.acoes_format   || null,
         legenda_copy: form.legenda_copy || null, arte_link: form.arte_link || null, observacoes: form.observacoes || null,
         updated_at: new Date().toISOString(),
       }).eq('id', entry.id)
