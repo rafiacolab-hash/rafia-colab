@@ -107,11 +107,15 @@ function InlineStatus({
 /* ─── Inline content editor ─────────────────────────────────────────────────── */
 function InlineContent({
   content, field, entryId, onSaved,
+  autoStatusField, currentStatus, onStatusSaved,
 }: {
   content: string | null
   field: string
   entryId: string
   onSaved: (value: string | null) => void
+  autoStatusField?: string
+  currentStatus?: DayEntryStatus | null
+  onStatusSaved?: (value: DayEntryStatus) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(content ?? '')
@@ -141,6 +145,11 @@ function InlineContent({
     try {
       await saveField(entryId, field, val)
       onSaved(val)
+      // Auto-set status to A_FAZER when content is first entered and status is null
+      if (val && autoStatusField && !currentStatus) {
+        await saveField(entryId, autoStatusField, 'A_FAZER')
+        onStatusSaved?.('A_FAZER')
+      }
     } catch {
       setDraft(content ?? '') // Revert on error
     } finally {
@@ -181,6 +190,76 @@ function InlineContent({
         : content
           ? <p className="text-sm text-theme-primary leading-relaxed whitespace-pre-wrap">{content}</p>
           : <p className="text-xs text-theme-muted italic">Clique para adicionar conteúdo...</p>
+      }
+    </div>
+  )
+}
+
+/* ─── Inline single-line input (for arte_link) ──────────────────────────────── */
+function InlineInput({
+  value, field, entryId, placeholder, onSaved,
+}: {
+  value: string | null
+  field: string
+  entryId: string
+  placeholder?: string
+  onSaved: (value: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft,   setDraft]   = useState(value ?? '')
+  const [saving,  setSaving]  = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (!editing) setDraft(value ?? '') }, [value, editing])
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+
+  const save = async () => {
+    setEditing(false)
+    const val = draft.trim() || null
+    if (val === value) return
+    setSaving(true)
+    try {
+      await saveField(entryId, field, val)
+      onSaved(val)
+    } catch {
+      setDraft(value ?? '')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={e => {
+          if (e.key === 'Enter') save()
+          if (e.key === 'Escape') { setEditing(false); setDraft(value ?? '') }
+        }}
+        placeholder={placeholder}
+        className="w-full bg-theme-surface border border-emerald-500/50 rounded-lg px-3 py-2 text-sm text-theme-primary focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
+      />
+    )
+  }
+
+  return (
+    <div
+      onClick={() => setEditing(true)}
+      className={`cursor-text rounded-lg px-3 py-2 min-h-[36px] hover:bg-theme-surface/60 border border-transparent hover:border-theme-border transition-all ${saving ? 'opacity-50' : ''}`}
+      title="Clique para editar"
+    >
+      {saving
+        ? <span className="flex items-center gap-1.5 text-xs text-theme-muted"><Loader2 size={11} className="animate-spin" />Salvando...</span>
+        : value
+          ? <a href={value} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+              className="text-sm text-emerald-500 hover:text-emerald-400 hover:underline truncate block">
+              {value}
+            </a>
+          : <p className="text-xs text-theme-muted italic">{placeholder ?? 'Clique para adicionar...'}</p>
       }
     </div>
   )
@@ -286,6 +365,9 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         field="stories_content"
                         entryId={entry.id}
                         onSaved={v => patch(entry.id, { stories_content: v })}
+                        autoStatusField="stories_status"
+                        currentStatus={entry.stories_status}
+                        onStatusSaved={v => patch(entry.id, { stories_status: v })}
                       />
                     </div>
 
@@ -310,6 +392,9 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         field="feed_content"
                         entryId={entry.id}
                         onSaved={v => patch(entry.id, { feed_content: v })}
+                        autoStatusField="feed_status"
+                        currentStatus={entry.feed_status}
+                        onStatusSaved={v => patch(entry.id, { feed_status: v })}
                       />
                     </div>
 
@@ -334,36 +419,52 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         field="acoes_content"
                         entryId={entry.id}
                         onSaved={v => patch(entry.id, { acoes_content: v })}
+                        autoStatusField="acoes_status"
+                        currentStatus={entry.acoes_status}
+                        onStatusSaved={v => patch(entry.id, { acoes_status: v })}
                       />
                     </div>
                   </div>
 
-                  {/* Extra fields */}
-                  {(entry.legenda_copy || entry.arte_link || entry.observacoes) && (
-                    <div className="bg-theme-card rounded-xl p-3.5 border border-theme-border space-y-2.5 mb-3">
-                      {entry.legenda_copy && (
-                        <div>
-                          <span className="text-[11px] font-semibold text-theme-muted uppercase tracking-wider">Legenda</span>
-                          <p className="text-sm text-theme-secondary mt-1 leading-relaxed">{entry.legenda_copy}</p>
-                        </div>
-                      )}
-                      {entry.arte_link && (
-                        <div>
-                          <span className="text-[11px] font-semibold text-theme-muted uppercase tracking-wider">Arte/Link</span>
-                          <a href={entry.arte_link} target="_blank" rel="noreferrer"
-                            className="text-sm text-emerald-500 hover:text-emerald-400 hover:underline block mt-1 truncate">
-                            {entry.arte_link}
-                          </a>
-                        </div>
-                      )}
-                      {entry.observacoes && (
-                        <div>
-                          <span className="text-[11px] font-semibold text-theme-muted uppercase tracking-wider">Observações</span>
-                          <p className="text-sm text-theme-secondary mt-1 leading-relaxed">{entry.observacoes}</p>
-                        </div>
-                      )}
+                  {/* Extra fields — sempre visíveis e editáveis */}
+                  <div className="bg-theme-card rounded-xl p-3.5 border border-theme-border mb-3">
+                    <span className="text-[11px] font-semibold text-theme-muted uppercase tracking-wider block mb-2.5">
+                      Extras
+                    </span>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Legenda / Copy */}
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-theme-muted pl-1">Legenda / Copy</span>
+                        <InlineContent
+                          content={entry.legenda_copy}
+                          field="legenda_copy"
+                          entryId={entry.id}
+                          onSaved={v => patch(entry.id, { legenda_copy: v })}
+                        />
+                      </div>
+                      {/* Observações */}
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-theme-muted pl-1">Observações</span>
+                        <InlineContent
+                          content={entry.observacoes}
+                          field="observacoes"
+                          entryId={entry.id}
+                          onSaved={v => patch(entry.id, { observacoes: v })}
+                        />
+                      </div>
                     </div>
-                  )}
+                    {/* Arte / Link — linha inteira */}
+                    <div className="space-y-1 mt-2">
+                      <span className="text-[11px] text-theme-muted pl-1">Arte / Link</span>
+                      <InlineInput
+                        value={entry.arte_link}
+                        field="arte_link"
+                        entryId={entry.id}
+                        placeholder="https://..."
+                        onSaved={v => patch(entry.id, { arte_link: v })}
+                      />
+                    </div>
+                  </div>
 
                   {/* Edit full button */}
                   <button onClick={() => setEditingEntry(entry)}

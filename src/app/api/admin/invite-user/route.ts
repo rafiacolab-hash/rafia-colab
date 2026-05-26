@@ -55,20 +55,54 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, SERVICE_ROLE_KEY)
 
-    // 1. Cria o auth user e envia convite por e-mail
-    const { data: inviteData, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: { name },
-      redirectTo: `${req.headers.get('origin') ?? ''}/login`,
-    })
-    if (inviteErr) throw new Error(inviteErr.message)
+    let userId: string = ''
+    let isExisting = false
 
-    const newUserId = inviteData.user.id
+    // 1. Busca o usuário pelo e-mail direto na API REST do Supabase
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const searchResp = await fetch(
+      `${supabaseUrl}/auth/v1/admin/users?page=1&per_page=1000`,
+      { headers: { 'apikey': SERVICE_ROLE_KEY, 'Authorization': `Bearer ${SERVICE_ROLE_KEY}` } }
+    )
+
+    console.log('[invite-user] searchResp.ok:', searchResp.ok, 'status:', searchResp.status)
+
+    if (searchResp.ok) {
+      const searchData = await searchResp.json()
+      const allUsers = searchData?.users ?? searchData ?? []
+      console.log('[invite-user] total users found:', Array.isArray(allUsers) ? allUsers.length : 'not array', 'keys:', Object.keys(searchData ?? {}))
+
+      const found = (Array.isArray(allUsers) ? allUsers : []).find(
+        (u: { email?: string; id: string }) =>
+          u.email?.toLowerCase() === email.trim().toLowerCase()
+      )
+      console.log('[invite-user] user found by email:', !!found, found?.id)
+
+      if (found) {
+        userId = found.id
+        isExisting = true
+      }
+    } else {
+      const errText = await searchResp.text()
+      console.log('[invite-user] search failed:', errText)
+    }
+
+    if (!isExisting) {
+      // 2. Usuário não existe — envia convite por e-mail
+      const { data: inviteData, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
+        data: { name },
+        redirectTo: `${req.headers.get('origin') ?? ''}/login`,
+      })
+      console.log('[invite-user] invite result — err:', inviteErr?.message, 'userId:', inviteData?.user?.id)
+      if (inviteErr) throw new Error(inviteErr.message)
+      userId = inviteData.user.id
+    }
 
     // 2. Cria/atualiza o perfil com role e client_id
     const { error: profileErr } = await admin
       .from('users_profile')
       .upsert({
-        id:        newUserId,
+        id:        userId,
         name:      name.trim(),
         role,
         client_id: client_id || null,
@@ -76,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     if (profileErr) throw new Error(profileErr.message)
 
-    return NextResponse.json({ success: true, userId: newUserId })
+    return NextResponse.json({ success: true, userId, existing: isExisting })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Erro interno.'
     return NextResponse.json({ error: message }, { status: 500 })

@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, ArrowRight, AlertCircle,
   LayoutGrid, LayoutList, Columns3, CalendarDays,
-  Pencil, X,
+  Pencil, X, ChevronDown, Filter,
 } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
 import type { DayEntryStatus, DayEntry } from '@/app/lib/entries'
@@ -529,6 +529,80 @@ function GlobalCalendarView({ fullEntries, clientMap, monthRef, onEdit, onRefres
   )
 }
 
+// ─── Filter Dropdown ──────────────────────────────────────────────────────────
+function FilterDropdown<T extends string>({
+  label, options, selected, onToggle, onClear,
+}: {
+  label: string
+  options: { value: T; label: string; color?: string }[]
+  selected: T[]
+  onToggle: (v: T) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const hasSelection = selected.length > 0
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors
+          ${hasSelection
+            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+            : 'bg-theme-surface border-theme-border text-theme-secondary hover:text-theme-primary hover:border-theme-border-strong'
+          }`}
+      >
+        <Filter size={12} />
+        {label}
+        {hasSelection && <span className="bg-emerald-500 text-black rounded-full w-4 h-4 flex items-center justify-center text-[10px] font-bold">{selected.length}</span>}
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute top-full mt-1.5 left-0 z-50 bg-theme-card border border-theme-border rounded-xl shadow-xl min-w-[180px] py-1.5 overflow-hidden">
+          {hasSelection && (
+            <button
+              onClick={() => { onClear(); setOpen(false) }}
+              className="w-full text-left px-3 py-1.5 text-xs text-theme-muted hover:text-theme-primary hover:bg-theme-surface transition-colors border-b border-theme-border mb-1"
+            >
+              Limpar filtro
+            </button>
+          )}
+          {options.map(opt => {
+            const active = selected.includes(opt.value)
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onToggle(opt.value)}
+                className={`w-full text-left flex items-center gap-2.5 px-3 py-2 text-xs transition-colors
+                  ${active ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'text-theme-secondary hover:bg-theme-surface hover:text-theme-primary'}`}
+              >
+                {opt.color
+                  ? <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: opt.color }} />
+                  : <span className={`w-2 h-2 rounded-full flex-shrink-0 ${active ? 'bg-emerald-500' : 'bg-theme-border'}`} />
+                }
+                <span className="flex-1">{opt.label}</span>
+                {active && <span className="text-emerald-500">✓</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 type ViewMode = 'cards' | 'lista' | 'kanban' | 'calendario'
 
@@ -538,6 +612,10 @@ export default function DashboardPage() {
   const [summaries, setSummaries] = useState<ClientSummary[]>([])
   const [loading,   setLoading]   = useState(true)
   const [viewMode,  setViewMode]  = useState<ViewMode>('cards')
+
+  // Filter state
+  const [filterClients,  setFilterClients]  = useState<string[]>([])
+  const [filterStatuses, setFilterStatuses] = useState<NonNullable<DayEntryStatus>[]>([])
 
   // Full entry data (loaded lazily for lista / kanban / calendario)
   const [fullEntries,  setFullEntries]  = useState<DayEntry[]>([])
@@ -641,15 +719,43 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, loading])
 
-  // Reset full data when month changes
+  // Reset full data when month changes (not on view switch — keeps cache between views)
   useEffect(() => {
-    if (viewMode !== 'cards') setFullEntries([])
-  }, [monthRef, viewMode])
+    setFullEntries([])
+  }, [monthRef])
+
+  // Filter helpers
+  const toggleClient = (id: string) =>
+    setFilterClients(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  const toggleStatus = (s: NonNullable<DayEntryStatus>) =>
+    setFilterStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
+
+  // Filtered summaries (for cards view)
+  const filteredSummaries = useMemo(() => {
+    let result = summaries
+    if (filterClients.length > 0)
+      result = result.filter(s => filterClients.includes(s.client.id))
+    return result
+  }, [summaries, filterClients])
+
+  // Filtered full entries (for lista / kanban / calendario)
+  const filteredEntries = useMemo(() => {
+    let result = fullEntries
+    if (filterClients.length > 0)
+      result = result.filter(e => filterClients.includes(e.client_id))
+    if (filterStatuses.length > 0) {
+      result = result.filter(e => {
+        const statuses = [e.stories_status, e.feed_status, e.acoes_status]
+        return statuses.some(s => s && filterStatuses.includes(s as NonNullable<DayEntryStatus>))
+      })
+    }
+    return result
+  }, [fullEntries, filterClients, filterStatuses])
 
   // Derived kanban items
   const kanbanItems = useMemo<KanbanItem[]>(() => {
     const items: KanbanItem[] = []
-    for (const entry of fullEntries) {
+    for (const entry of filteredEntries) {
       const client = clientMap.get(entry.client_id)
       if (!client) continue
       const pieces: ['stories' | 'feed' | 'acoes', string | null, DayEntryStatus, string | null][] = [
@@ -667,11 +773,28 @@ export default function DashboardPage() {
     return items
   }, [fullEntries, clientMap])
 
-  const withMonth    = summaries.filter(s => s.hasMonth)
-  const withoutMonth = summaries.filter(s => !s.hasMonth)
+  const withMonth    = filteredSummaries.filter(s => s.hasMonth)
+  const withoutMonth = filteredSummaries.filter(s => !s.hasMonth)
   const totalPosted  = withMonth.reduce((a, s) => a + s.postedItems, 0)
   const totalItems   = withMonth.reduce((a, s) => a + s.totalItems, 0)
   const globalPct    = totalItems > 0 ? Math.round((totalPosted / totalItems) * 100) : 0
+
+  // Options for filter dropdowns (built from loaded summaries)
+  const clientOptions = useMemo(() =>
+    summaries.map(s => ({ value: s.client.id, label: s.client.name, color: s.client.color })),
+  [summaries])
+
+  const statusOptions: { value: NonNullable<DayEntryStatus>; label: string }[] = [
+    { value: 'A_FAZER',    label: 'A Fazer'       },
+    { value: 'AGUARDANDO', label: 'Ag. Aprovação' },
+    { value: 'ANDAMENTO',  label: 'Em Andamento'  },
+    { value: 'VALIDACAO',  label: 'Em Validação'  },
+    { value: 'CORRECAO',   label: 'Em Correção'   },
+    { value: 'POSTADO',    label: 'Postado'       },
+    { value: 'CANCELADO',  label: 'Cancelado'     },
+  ]
+
+  const hasFilters = filterClients.length > 0 || filterStatuses.length > 0
 
   const needsFullLoad = viewMode !== 'cards'
   const isFullLoading = loadingFull || (needsFullLoad && !loading && fullEntries.length === 0 && withMonth.length > 0)
@@ -691,6 +814,35 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Filters */}
+            {!loading && summaries.length > 0 && (
+              <div className="flex items-center gap-2">
+                <FilterDropdown
+                  label="Cliente"
+                  options={clientOptions}
+                  selected={filterClients}
+                  onToggle={toggleClient}
+                  onClear={() => setFilterClients([])}
+                />
+                <FilterDropdown
+                  label="Status"
+                  options={statusOptions}
+                  selected={filterStatuses}
+                  onToggle={toggleStatus}
+                  onClear={() => setFilterStatuses([])}
+                />
+                {hasFilters && (
+                  <button
+                    onClick={() => { setFilterClients([]); setFilterStatuses([]) }}
+                    className="text-xs text-theme-muted hover:text-theme-primary transition-colors px-1"
+                    title="Limpar filtros"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* View toggle */}
             <div className="flex items-center bg-theme-surface rounded-lg p-1 gap-0.5">
               {([
@@ -737,6 +889,15 @@ export default function DashboardPage() {
           ) : summaries.length === 0 ? (
             <p className="text-zinc-500 text-sm text-center mt-16">Nenhum cliente cadastrado.</p>
 
+          ) : filteredSummaries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-2">
+              <p className="text-theme-secondary text-sm">Nenhum cliente encontrado com esses filtros.</p>
+              <button onClick={() => { setFilterClients([]); setFilterStatuses([]) }}
+                className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors">
+                Limpar filtros
+              </button>
+            </div>
+
           ) : viewMode === 'cards' ? (
             <>
               {withMonth.length > 0 && (
@@ -768,7 +929,7 @@ export default function DashboardPage() {
             </div>
 
           ) : viewMode === 'lista' ? (
-            <GlobalListaView summaries={summaries} fullEntries={fullEntries} onRefresh={loadFull} />
+            <GlobalListaView summaries={filteredSummaries} fullEntries={filteredEntries} onRefresh={loadFull} />
 
           ) : viewMode === 'kanban' ? (
             kanbanItems.length === 0 ? (
@@ -782,13 +943,13 @@ export default function DashboardPage() {
 
           ) : (
             /* ── Calendário global ── */
-            fullEntries.length === 0 ? (
+            filteredEntries.length === 0 ? (
               <div className="flex items-center justify-center h-48">
                 <p className="text-theme-secondary text-sm">Nenhum conteúdo planejado para {formatMonth(monthRef)}.</p>
               </div>
             ) : (
               <GlobalCalendarView
-                fullEntries={fullEntries}
+                fullEntries={filteredEntries}
                 clientMap={clientMap}
                 monthRef={monthRef}
                 onEdit={setEditingEntry}
