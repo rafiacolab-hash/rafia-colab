@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient, createDataClient, getUserFromCookie } from '@/app/lib/supabase'
-import { LogOut, ChevronDown, ChevronRight, Sun, Moon } from 'lucide-react'
+import { LogOut, ChevronDown, ChevronRight, Sun, Moon, BookOpen } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 
 type Client = { id: string; name: string; color: string }
@@ -145,6 +145,19 @@ export default function Sidebar() {
             </button>
             {expanded[client.id] && (
               <div className="ml-7 mt-1 space-y-1">
+                {/* Link: Perfil da Marca */}
+                <button
+                  onClick={() => router.push(`/${client.id}/perfil`)}
+                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
+                    pathname === `/${client.id}/perfil`
+                      ? 'bg-theme-surface text-emerald-600 dark:text-emerald-400'
+                      : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
+                  }`}>
+                  <BookOpen size={11} className="flex-shrink-0" />
+                  Perfil da Marca
+                </button>
+
+                {/* Meses */}
                 {(monthsByClient[client.id] || []).map(month => (
                   <button key={month.id}
                     onClick={() => router.push(`/${client.id}/${month.month_ref}`)}
@@ -157,7 +170,7 @@ export default function Sidebar() {
                   </button>
                 ))}
                 {(monthsByClient[client.id] || []).length === 0 && (
-                  <p className="text-theme-muted text-xs px-3 py-1">Nenhum mês</p>
+                  <p className="text-theme-muted text-xs px-3 py-1 italic">Nenhum mês</p>
                 )}
               </div>
             )}
