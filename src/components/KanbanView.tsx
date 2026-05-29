@@ -19,13 +19,14 @@ type Props = { entries: DayEntry[]; onRefresh: () => void }
 type Column = { status: DayEntryStatus; label: string; dotColor: string; accent: string }
 
 const COLUMNS: Column[] = [
-  { status: 'A_FAZER',    label: 'A Fazer',       dotColor: 'bg-zinc-500',    accent: 'border-theme-border'    },
-  { status: 'AGUARDANDO', label: 'Ag. Aprovação',  dotColor: 'bg-amber-500',   accent: 'border-amber-500/50'    },
-  { status: 'ANDAMENTO',  label: 'Em Andamento',   dotColor: 'bg-blue-500',    accent: 'border-blue-500/50'     },
-  { status: 'VALIDACAO',  label: 'Em Validação',   dotColor: 'bg-purple-500',  accent: 'border-purple-500/50'   },
-  { status: 'CORRECAO',   label: 'Em Correção',    dotColor: 'bg-red-500',     accent: 'border-red-500/50'      },
-  { status: 'POSTADO',    label: 'Postado',        dotColor: 'bg-emerald-500', accent: 'border-emerald-500/50'  },
-  { status: 'CANCELADO',  label: 'Cancelado',      dotColor: 'bg-zinc-400',    accent: 'border-theme-border'    },
+  { status: 'A_FAZER',    label: 'A Fazer',       dotColor: 'bg-zinc-500',    accent: 'border-theme-border'   },
+  { status: 'ANDAMENTO',  label: 'Em Andamento',  dotColor: 'bg-blue-500',    accent: 'border-blue-500/50'    },
+  { status: 'AGUARDANDO', label: 'Ag. Aprovação', dotColor: 'bg-amber-500',   accent: 'border-amber-500/50'   },
+  { status: 'CORRECAO',   label: 'Em Correção',   dotColor: 'bg-red-500',     accent: 'border-red-500/50'     },
+  { status: 'AGENDADO',   label: 'Agendado',      dotColor: 'bg-sky-500',     accent: 'border-sky-500/50'     },
+  { status: 'CONCLUIDO',  label: 'Concluído',     dotColor: 'bg-violet-500',  accent: 'border-violet-500/50'  },
+  { status: 'POSTADO',    label: 'Postado',       dotColor: 'bg-emerald-500', accent: 'border-emerald-500/50' },
+  { status: 'CANCELADO',  label: 'Cancelado',     dotColor: 'bg-zinc-400',    accent: 'border-theme-border'   },
 ]
 
 const TYPE_CONFIG: Record<ContentType, { label: string; dot: string; textColor: string }> = {
@@ -64,19 +65,22 @@ function entriesToItems(entries: DayEntry[]): ContentItem[] {
 
 // ─── Kanban Card ──────────────────────────────────────────────────────────────
 function KanbanCard({
-  item, onEdit, selected, onToggleSelect, selectionMode,
+  item, onEdit, selected, onToggleSelect, selectionMode, onDragStart,
 }: {
   item: ContentItem
   onEdit: (entry: DayEntry) => void
   selected: boolean
   onToggleSelect: (key: string) => void
   selectionMode: boolean
+  onDragStart: (item: ContentItem) => void
 }) {
   const typeCfg = TYPE_CONFIG[item.type]
   return (
     <div
+      draggable
+      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart(item) }}
       onClick={() => selectionMode && onToggleSelect(item.key)}
-      className={`group relative bg-theme-card border rounded-xl p-3 transition-all
+      className={`group relative bg-theme-card border rounded-xl p-3 transition-all cursor-grab active:cursor-grabbing
         ${selected
           ? 'border-emerald-500 bg-emerald-500/5 ring-1 ring-emerald-500/30'
           : 'border-theme-border hover:border-theme-border-strong'
@@ -184,6 +188,8 @@ export default function KanbanView({ entries, onRefresh }: Props) {
   const [saving,         setSaving]         = useState(false)
   const [filterStatuses, setFilterStatuses] = useState<DayEntryStatus[]>([])
   const [filterDate,     setFilterDate]     = useState<string>('')
+  const [dragItem,       setDragItem]       = useState<ContentItem | null>(null)
+  const [dragOverCol,    setDragOverCol]    = useState<DayEntryStatus | null>(null)
 
   const allItems = useMemo(() => entriesToItems(entries), [entries])
 
@@ -249,6 +255,19 @@ export default function KanbanView({ entries, onRefresh }: Props) {
     onRefresh()
   }
 
+  // ── Drag and drop ──
+  const handleDrop = async (targetStatus: DayEntryStatus) => {
+    setDragOverCol(null)
+    if (!dragItem || dragItem.status === targetStatus) { setDragItem(null); return }
+    const supabase = createDataClient()
+    await supabase
+      .from('day_entries')
+      .update({ [STATUS_FIELD[dragItem.type]]: targetStatus, updated_at: new Date().toISOString() })
+      .eq('id', dragItem.entry.id)
+    setDragItem(null)
+    onRefresh()
+  }
+
   const hasFilters = filterStatuses.length > 0 || filterDate
 
   return (
@@ -307,9 +326,17 @@ export default function KanbanView({ entries, onRefresh }: Props) {
         {visibleColumns.map(col => {
           const colItems = byStatus.get(col.status) ?? []
           const selectedInCol = colItems.filter(i => selected.has(i.key)).length
+          const isDragTarget = dragOverCol === col.status && dragItem?.status !== col.status
           return (
-            <div key={col.status} className="flex-shrink-0 w-[220px] flex flex-col">
-              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 ${col.accent}`}>
+            <div
+              key={col.status}
+              className="flex-shrink-0 w-[220px] flex flex-col"
+              onDragOver={e => { e.preventDefault(); setDragOverCol(col.status) }}
+              onDragLeave={() => setDragOverCol(prev => prev === col.status ? null : prev)}
+              onDrop={() => handleDrop(col.status)}
+            >
+              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 transition-colors
+                ${isDragTarget ? 'bg-emerald-500/10 border-emerald-500/60' : col.accent}`}>
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dotColor}`} />
                 <span className="text-xs font-medium text-theme-secondary flex-1">{col.label}</span>
                 <div className="flex items-center gap-1.5">
@@ -321,8 +348,17 @@ export default function KanbanView({ entries, onRefresh }: Props) {
                   )}
                 </div>
               </div>
-              <div className={`flex-1 rounded-b-xl border ${col.accent} bg-theme-bg/50 p-2 space-y-2 min-h-[120px]`}>
-                {colItems.length === 0
+              <div className={`flex-1 rounded-b-xl border p-2 space-y-2 min-h-[120px] transition-colors
+                ${isDragTarget
+                  ? 'bg-emerald-500/5 border-emerald-500/60 border-dashed'
+                  : `bg-theme-bg/50 ${col.accent}`
+                }`}>
+                {isDragTarget && (
+                  <div className="flex items-center justify-center h-10 text-xs text-emerald-500 font-medium">
+                    Soltar aqui
+                  </div>
+                )}
+                {colItems.length === 0 && !isDragTarget
                   ? <div className="flex items-center justify-center h-20"><span className="text-xs text-theme-muted">—</span></div>
                   : colItems.map(item => (
                       <KanbanCard
@@ -332,6 +368,7 @@ export default function KanbanView({ entries, onRefresh }: Props) {
                         selected={selected.has(item.key)}
                         onToggleSelect={toggleSelect}
                         selectionMode={selectionMode}
+                        onDragStart={setDragItem}
                       />
                     ))
                 }

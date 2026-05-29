@@ -11,13 +11,14 @@ type Props = { entries: DayEntry[]; onRefresh: () => void }
 
 /* ─── Status options ───────────────────────────────────────────────────────── */
 const STATUS_OPTIONS: { value: DayEntryStatus; label: string; dot: string }[] = [
-  { value: 'A_FAZER',    label: 'A Fazer',       dot: 'bg-zinc-500'   },
-  { value: 'AGUARDANDO', label: 'Ag. Aprovação', dot: 'bg-amber-400'  },
-  { value: 'ANDAMENTO',  label: 'Em Andamento',  dot: 'bg-blue-400'   },
-  { value: 'VALIDACAO',  label: 'Em Validação',  dot: 'bg-purple-400' },
-  { value: 'CORRECAO',   label: 'Em Correção',   dot: 'bg-red-400'    },
-  { value: 'POSTADO',    label: 'Postado',       dot: 'bg-emerald-400'},
-  { value: 'CANCELADO',  label: 'Cancelado',     dot: 'bg-zinc-400'   },
+  { value: 'A_FAZER',    label: 'A Fazer',       dot: 'bg-zinc-500'    },
+  { value: 'ANDAMENTO',  label: 'Em Andamento',  dot: 'bg-blue-400'    },
+  { value: 'AGUARDANDO', label: 'Ag. Aprovação', dot: 'bg-amber-400'   },
+  { value: 'CORRECAO',   label: 'Em Correção',   dot: 'bg-red-400'     },
+  { value: 'AGENDADO',   label: 'Agendado',      dot: 'bg-sky-400'     },
+  { value: 'CONCLUIDO',  label: 'Concluído',     dot: 'bg-violet-400'  },
+  { value: 'POSTADO',    label: 'Postado',       dot: 'bg-emerald-400' },
+  { value: 'CANCELADO',  label: 'Cancelado',     dot: 'bg-zinc-400'    },
 ]
 
 /* ─── Save a single field to Supabase ──────────────────────────────────────── */
@@ -195,23 +196,28 @@ function InlineContent({
   )
 }
 
-/* ─── Inline single-line input (for arte_link) ──────────────────────────────── */
-function InlineInput({
-  value, field, entryId, placeholder, onSaved,
+/* ─── Inline multi-link input (for arte_link) ──────────────────────────────── */
+function InlineLinks({
+  value, field, entryId, onSaved,
 }: {
   value: string | null
   field: string
   entryId: string
-  placeholder?: string
   onSaved: (value: string | null) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(value ?? '')
   const [saving,  setSaving]  = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => { if (!editing) setDraft(value ?? '') }, [value, editing])
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
+  useEffect(() => {
+    if (editing && taRef.current) {
+      taRef.current.focus()
+      taRef.current.style.height = 'auto'
+      taRef.current.style.height = taRef.current.scrollHeight + 'px'
+    }
+  }, [editing])
 
   const save = async () => {
     setEditing(false)
@@ -230,36 +236,46 @@ function InlineInput({
 
   if (editing) {
     return (
-      <input
-        ref={inputRef}
-        type="text"
+      <textarea
+        ref={taRef}
         value={draft}
-        onChange={e => setDraft(e.target.value)}
+        onChange={e => {
+          setDraft(e.target.value)
+          e.target.style.height = 'auto'
+          e.target.style.height = e.target.scrollHeight + 'px'
+        }}
         onBlur={save}
         onKeyDown={e => {
-          if (e.key === 'Enter') save()
           if (e.key === 'Escape') { setEditing(false); setDraft(value ?? '') }
+          if (e.key === 'Enter' && e.metaKey) save()
         }}
-        placeholder={placeholder}
-        className="w-full bg-theme-surface border border-emerald-500/50 rounded-lg px-3 py-2 text-sm text-theme-primary focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
+        placeholder={'Um link por linha...\nhttps://drive.google.com/...\nhttps://canva.com/...'}
+        className="w-full bg-theme-surface border border-emerald-500/50 rounded-lg px-3 py-2 text-sm text-theme-primary resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-all min-h-[60px]"
+        rows={2}
       />
     )
   }
+
+  const links = (value ?? '').split('\n').map(l => l.trim()).filter(Boolean)
 
   return (
     <div
       onClick={() => setEditing(true)}
       className={`cursor-text rounded-lg px-3 py-2 min-h-[36px] hover:bg-theme-surface/60 border border-transparent hover:border-theme-border transition-all ${saving ? 'opacity-50' : ''}`}
-      title="Clique para editar"
+      title="Clique para editar links"
     >
       {saving
         ? <span className="flex items-center gap-1.5 text-xs text-theme-muted"><Loader2 size={11} className="animate-spin" />Salvando...</span>
-        : value
-          ? <a href={value} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-              className="text-sm text-emerald-500 hover:text-emerald-400 hover:underline truncate block">
-              {value}
-            </a>
-          : <p className="text-xs text-theme-muted italic">{placeholder ?? 'Clique para adicionar...'}</p>
+        : links.length > 0
+          ? <div className="space-y-1">
+              {links.map((link, i) => (
+                <a key={i} href={link} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                  className="text-sm text-emerald-500 hover:text-emerald-400 hover:underline truncate block">
+                  {link}
+                </a>
+              ))}
+            </div>
+          : <p className="text-xs text-theme-muted italic">Clique para adicionar links...</p>
       }
     </div>
   )
@@ -277,6 +293,14 @@ export default function ListaView({ entries, onRefresh }: Props) {
   const patch = (id: string, update: Partial<DayEntry>) =>
     setLocal(prev => prev.map(e => e.id === id ? { ...e, ...update } : e))
 
+  // Oculta dias completamente vazios (sem conteúdo e sem status em nenhum dos três campos)
+  const hasAnything = (e: DayEntry) =>
+    e.stories_content || e.stories_status ||
+    e.feed_content    || e.feed_status    ||
+    e.acoes_content   || e.acoes_status
+
+  const visibleEntries = local.filter(hasAnything)
+
   return (
     <>
       <div className="bg-theme-card rounded-xl border border-theme-border overflow-hidden">
@@ -291,7 +315,13 @@ export default function ListaView({ entries, onRefresh }: Props) {
           <div />
         </div>
 
-        {local.map(entry => {
+        {visibleEntries.length === 0 && (
+          <div className="px-4 py-10 text-center">
+            <p className="text-sm text-theme-muted">Nenhum dia com conteúdo neste mês ainda.</p>
+          </div>
+        )}
+
+        {visibleEntries.map(entry => {
           const isOpen = expanded[entry.id]
           return (
             <div key={entry.id} className="border-b border-theme-border last:border-0">
@@ -453,14 +483,13 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         />
                       </div>
                     </div>
-                    {/* Arte / Link — linha inteira */}
+                    {/* Arte / Links — suporta múltiplos (um por linha) */}
                     <div className="space-y-1 mt-2">
-                      <span className="text-[11px] text-theme-muted pl-1">Arte / Link</span>
-                      <InlineInput
+                      <span className="text-[11px] text-theme-muted pl-1">Arte / Links</span>
+                      <InlineLinks
                         value={entry.arte_link}
                         field="arte_link"
                         entryId={entry.id}
-                        placeholder="https://..."
                         onSaved={v => patch(entry.id, { arte_link: v })}
                       />
                     </div>

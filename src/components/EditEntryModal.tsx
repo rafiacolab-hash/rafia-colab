@@ -8,23 +8,27 @@ import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
 const STATUS_OPTIONS: { value: DayEntryStatus; label: string }[] = [
   { value: null,         label: '—'            },
   { value: 'A_FAZER',    label: 'A Fazer'       },
-  { value: 'AGUARDANDO', label: 'Ag. Aprovação' },
   { value: 'ANDAMENTO',  label: 'Em Andamento'  },
-  { value: 'VALIDACAO',  label: 'Em Validação'  },
+  { value: 'AGUARDANDO', label: 'Ag. Aprovação' },
   { value: 'CORRECAO',   label: 'Em Correção'   },
-  { value: 'CANCELADO',  label: 'Cancelado'     },
+  { value: 'AGENDADO',   label: 'Agendado'      },
+  { value: 'CONCLUIDO',  label: 'Concluído'     },
   { value: 'POSTADO',    label: 'Postado'       },
+  { value: 'CANCELADO',  label: 'Cancelado'     },
 ]
 
 // Classes do select colorizadas por status (funciona em ambos os temas por usar cores fixas com alpha)
 const STATUS_BG: Record<string, string> = {
   A_FAZER:    'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border-zinc-500/30',
-  AGUARDANDO: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
   ANDAMENTO:  'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30',
-  VALIDACAO:  'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/30',
+  AGUARDANDO: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
   CORRECAO:   'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30',
-  CANCELADO:  'bg-theme-surface/50 text-theme-muted border-theme-border',
+  AGENDADO:   'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30',
+  CONCLUIDO:  'bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30',
   POSTADO:    'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+  CANCELADO:  'bg-theme-surface/50 text-theme-muted border-theme-border',
+  // legado
+  VALIDACAO:  'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/30',
 }
 
 type Props  = { entry: DayEntry; onClose: () => void; onSaved: () => void }
@@ -179,13 +183,18 @@ export default function EditEntryModal({ entry, onClose, onSaved }: Props) {
                 onChange={v => set('legenda_copy', v)} rows={5} placeholder="Texto da legenda ou copy..." />
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <TextInputField label="Arte / Link" value={form.arte_link}
-                    onChange={v => set('arte_link', v)} placeholder="https://..." type="url" />
+                  <TextAreaField label="Arte / Links (um por linha)" value={form.arte_link}
+                    onChange={v => set('arte_link', v)} rows={3}
+                    placeholder={'https://drive.google.com/...\nhttps://canva.com/...'} />
                   {form.arte_link && (
-                    <a href={form.arte_link} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 hover:underline ml-0.5">
-                      <ExternalLink size={11} /> Abrir link
-                    </a>
+                    <div className="flex flex-col gap-0.5 ml-0.5">
+                      {form.arte_link.split('\n').map(l => l.trim()).filter(Boolean).map((link, i) => (
+                        <a key={i} href={link} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 hover:underline truncate">
+                          <ExternalLink size={11} /> {link}
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <TextAreaField label="Observações" value={form.observacoes}

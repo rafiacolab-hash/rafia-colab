@@ -42,26 +42,28 @@ type KanbanItem = {
 
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<NonNullable<DayEntryStatus>, { label: string; color: string; bg: string }> = {
-  AGUARDANDO: { label: 'Ag. Aprovação', color: 'text-amber-400',       bg: 'bg-amber-500'    },
   A_FAZER:    { label: 'A Fazer',       color: 'text-theme-secondary', bg: 'bg-zinc-500'     },
   ANDAMENTO:  { label: 'Em Andamento',  color: 'text-blue-400',        bg: 'bg-blue-500'     },
-  VALIDACAO:  { label: 'Em Validação',  color: 'text-purple-400',      bg: 'bg-purple-500'   },
+  AGUARDANDO: { label: 'Ag. Aprovação', color: 'text-amber-400',       bg: 'bg-amber-500'    },
   CORRECAO:   { label: 'Em Correção',   color: 'text-red-400',         bg: 'bg-red-500'      },
-  CANCELADO:  { label: 'Cancelado',     color: 'text-theme-muted',     bg: 'bg-theme-raised' },
+  AGENDADO:   { label: 'Agendado',      color: 'text-sky-400',         bg: 'bg-sky-500'      },
+  CONCLUIDO:  { label: 'Concluído',     color: 'text-violet-400',      bg: 'bg-violet-500'   },
   POSTADO:    { label: 'Postado',       color: 'text-emerald-400',     bg: 'bg-emerald-500'  },
+  CANCELADO:  { label: 'Cancelado',     color: 'text-theme-muted',     bg: 'bg-theme-raised' },
 }
 
 const VISIBLE_STATUSES: NonNullable<DayEntryStatus>[] = [
-  'POSTADO','ANDAMENTO','VALIDACAO','CORRECAO','AGUARDANDO','A_FAZER',
+  'POSTADO','ANDAMENTO','AGUARDANDO','CORRECAO','AGENDADO','CONCLUIDO','A_FAZER',
 ]
 
 const KANBAN_COLUMNS: { status: DayEntryStatus; label: string; dot: string; accent: string }[] = [
   { status: 'A_FAZER',    label: 'A Fazer',       dot: 'bg-zinc-500',    accent: 'border-theme-border'    },
-  { status: 'AGUARDANDO', label: 'Ag. Aprovação', dot: 'bg-amber-500',   accent: 'border-amber-500/50'    },
   { status: 'ANDAMENTO',  label: 'Em Andamento',  dot: 'bg-blue-500',    accent: 'border-blue-500/50'     },
-  { status: 'VALIDACAO',  label: 'Em Validação',  dot: 'bg-purple-500',  accent: 'border-purple-500/50'   },
+  { status: 'AGUARDANDO', label: 'Ag. Aprovação', dot: 'bg-amber-500',   accent: 'border-amber-500/50'    },
   { status: 'CORRECAO',   label: 'Em Correção',   dot: 'bg-red-500',     accent: 'border-red-500/50'      },
-  { status: 'POSTADO',    label: 'Postado',        dot: 'bg-emerald-500', accent: 'border-emerald-500/50'  },
+  { status: 'AGENDADO',   label: 'Agendado',      dot: 'bg-sky-500',     accent: 'border-sky-500/50'      },
+  { status: 'CONCLUIDO',  label: 'Concluído',     dot: 'bg-violet-500',  accent: 'border-violet-500/50'   },
+  { status: 'POSTADO',    label: 'Postado',       dot: 'bg-emerald-500', accent: 'border-emerald-500/50'  },
   { status: 'CANCELADO',  label: 'Cancelado',     dot: 'bg-zinc-400',    accent: 'border-theme-border'    },
 ]
 
@@ -873,10 +875,11 @@ export default function DashboardPage() {
 
   const statusOptions: { value: NonNullable<DayEntryStatus>; label: string }[] = [
     { value: 'A_FAZER',    label: 'A Fazer'       },
-    { value: 'AGUARDANDO', label: 'Ag. Aprovação' },
     { value: 'ANDAMENTO',  label: 'Em Andamento'  },
-    { value: 'VALIDACAO',  label: 'Em Validação'  },
+    { value: 'AGUARDANDO', label: 'Ag. Aprovação' },
     { value: 'CORRECAO',   label: 'Em Correção'   },
+    { value: 'AGENDADO',   label: 'Agendado'      },
+    { value: 'CONCLUIDO',  label: 'Concluído'     },
     { value: 'POSTADO',    label: 'Postado'       },
     { value: 'CANCELADO',  label: 'Cancelado'     },
   ]

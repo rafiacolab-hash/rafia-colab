@@ -7,11 +7,17 @@ import StatusBadge from './StatusBadge'
 import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
 
 /* ─── Dot colors (calendar grid) ──────────────────────────────────────────── */
-const STATUS_DOT: Record<NonNullable<DayEntryStatus>, string> = {
-  POSTADO:    'bg-emerald-400', ANDAMENTO:  'bg-blue-400',
-  VALIDACAO:  'bg-purple-400',  CORRECAO:   'bg-red-400',
-  AGUARDANDO: 'bg-amber-400',   A_FAZER:    'bg-zinc-500',
+const STATUS_DOT: Record<string, string> = {
+  A_FAZER:    'bg-zinc-500',
+  ANDAMENTO:  'bg-blue-400',
+  AGUARDANDO: 'bg-amber-400',
+  CORRECAO:   'bg-red-400',
+  AGENDADO:   'bg-sky-400',
+  CONCLUIDO:  'bg-violet-400',
+  POSTADO:    'bg-emerald-400',
   CANCELADO:  'bg-zinc-400',
+  // legado
+  VALIDACAO:  'bg-purple-400',
 }
 
 type Props = { entries: DayEntry[]; monthRef: string; onRefresh: () => void }
@@ -63,9 +69,25 @@ function buildCalendarCells(monthRef: string, entries: DayEntry[]): CalendarCell
 }
 
 /* ─── Status dot ───────────────────────────────────────────────────────────── */
-function StatusDot({ status, title }: { status: DayEntryStatus; title: string }) {
-  if (!status) return <span className="w-2 h-2 rounded-full bg-theme-surface" title={title} />
-  return <span className={`w-2 h-2 rounded-full ${STATUS_DOT[status]}`} title={`${title}: ${status}`} />
+const STATUS_DOT_LABEL: Record<string, string> = {
+  A_FAZER: 'A Fazer', ANDAMENTO: 'Em Andamento', AGUARDANDO: 'Ag. Aprovação',
+  CORRECAO: 'Em Correção', AGENDADO: 'Agendado', CONCLUIDO: 'Concluído',
+  POSTADO: 'Postado', CANCELADO: 'Cancelado', VALIDACAO: 'Em Validação',
+}
+
+function StatusDot({ status, label }: { status: DayEntryStatus; label: string }) {
+  const statusLabel = status ? STATUS_DOT_LABEL[status] ?? status : '—'
+  const dotClass = status ? STATUS_DOT[status] ?? 'bg-zinc-400' : 'bg-theme-surface border border-theme-border'
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full
+        ${status ? 'bg-theme-surface/60' : 'opacity-40'}`}
+      title={`${label}: ${statusLabel}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
+      <span className="text-theme-muted leading-none">{label}</span>
+    </span>
+  )
 }
 
 /* ─── Calendar cell ────────────────────────────────────────────────────────── */
@@ -75,31 +97,36 @@ function Cell({ cell, onSelect }: { cell: CalendarCell; onSelect: (e: DayEntry) 
   const isToday = cell.dateStr === new Date().toISOString().split('T')[0]
   const hasContent = !!(entry?.stories_status || entry?.feed_status || entry?.acoes_status ||
     entry?.stories_content || entry?.feed_content || entry?.acoes_content)
+  const isClickable = isCurrentMonth && entry && hasContent
 
   return (
     <div
-      onClick={() => entry && onSelect(entry)}
+      onClick={() => isClickable && onSelect(entry)}
       className={`group relative min-h-[80px] p-2 border-b border-r border-theme-border transition-colors
         ${isCurrentMonth ? 'bg-theme-bg' : 'bg-theme-surface/20'}
-        ${entry ? 'cursor-pointer hover:bg-theme-surface/40' : 'cursor-default'}`}
+        ${isClickable ? 'cursor-pointer hover:bg-theme-surface/40' : 'cursor-default'}`}
+      title={isClickable ? 'Clique para ver detalhes' : undefined}
     >
-      <div className="flex items-start justify-between mb-2">
-        <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full
+      <div className="flex items-start justify-between mb-1.5">
+        <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full transition-colors
           ${isToday ? 'bg-emerald-500 text-black font-bold' : ''}
           ${!isToday && isCurrentMonth ? 'text-theme-primary' : ''}
-          ${!isCurrentMonth ? 'text-theme-muted' : ''}`}>
+          ${!isCurrentMonth ? 'text-theme-muted' : ''}
+          ${isClickable && !isToday ? 'group-hover:bg-theme-surface' : ''}`}>
           {day}
         </span>
-        {hasContent && isCurrentMonth && (
-          <span className="w-1.5 h-1.5 rounded-full bg-theme-raised group-hover:bg-emerald-400 transition-colors" />
+        {isClickable && (
+          <span className="opacity-0 group-hover:opacity-100 text-[10px] text-theme-muted transition-opacity pr-0.5">
+            ver →
+          </span>
         )}
       </div>
 
       {isCurrentMonth && entry && (
-        <div className="flex items-center gap-1 flex-wrap">
-          <StatusDot status={entry.stories_status} title="Stories" />
-          <StatusDot status={entry.feed_status}    title="Feed"    />
-          <StatusDot status={entry.acoes_status}   title="Ação"    />
+        <div className="flex flex-col gap-0.5">
+          <StatusDot status={entry.stories_status} label="S" />
+          <StatusDot status={entry.feed_status}    label="F" />
+          <StatusDot status={entry.acoes_status}   label="A" />
         </div>
       )}
     </div>

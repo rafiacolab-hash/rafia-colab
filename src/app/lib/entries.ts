@@ -1,8 +1,9 @@
 import { createDataClient } from '@/app/lib/supabase'
 
 export type DayEntryStatus =
-  | 'AGUARDANDO' | 'A_FAZER' | 'ANDAMENTO'
-  | 'VALIDACAO' | 'CORRECAO' | 'CANCELADO' | 'POSTADO'
+  | 'A_FAZER' | 'ANDAMENTO' | 'AGUARDANDO'
+  | 'CORRECAO' | 'AGENDADO' | 'CONCLUIDO'
+  | 'POSTADO' | 'CANCELADO'
   | null
 
 export type DayEntry = {
