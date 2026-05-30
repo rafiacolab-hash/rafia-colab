@@ -185,11 +185,24 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
   onNavigate: (clientId: string) => void
   onRefresh: () => void
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [bulkSaving, setBulkSaving] = useState(false)
-  const [bulkOpen, setBulkOpen] = useState(false)
+  const [selected,    setSelected]    = useState<Set<string>>(new Set())
+  const [bulkSaving,  setBulkSaving]  = useState(false)
+  const [bulkOpen,    setBulkOpen]    = useState(false)
+  const [dragItem,    setDragItem]    = useState<KanbanItem | null>(null)
+  const [dragOverCol, setDragOverCol] = useState<DayEntryStatus | null>(null)
 
   const selectionMode = selected.size > 0
+
+  const handleDrop = async (targetStatus: DayEntryStatus) => {
+    setDragOverCol(null)
+    if (!dragItem || dragItem.status === targetStatus) { setDragItem(null); return }
+    const supabase = createDataClient()
+    await supabase.from('day_entries')
+      .update({ [STATUS_FIELD_MAP[dragItem.type]]: targetStatus, updated_at: new Date().toISOString() })
+      .eq('id', dragItem.entry.id)
+    setDragItem(null)
+    onRefresh()
+  }
 
   const toggleSelect = (key: string) =>
     setSelected(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
@@ -225,9 +238,17 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
         {visibleColumns.map(col => {
           const colItems = byStatus.get(col.status) ?? []
           const selectedInCol = colItems.filter(i => selected.has(i.key)).length
+          const isDragTarget = dragOverCol === col.status && dragItem?.status !== col.status
           return (
-            <div key={col.status ?? 'null'} className="flex-shrink-0 w-[240px] flex flex-col">
-              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 ${col.accent}`}>
+            <div
+              key={col.status ?? 'null'}
+              className="flex-shrink-0 w-[240px] flex flex-col"
+              onDragOver={e => { e.preventDefault(); setDragOverCol(col.status) }}
+              onDragLeave={() => setDragOverCol(prev => prev === col.status ? null : prev)}
+              onDrop={() => handleDrop(col.status)}
+            >
+              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-xl bg-theme-card border border-b-0 transition-colors
+                ${isDragTarget ? 'bg-emerald-500/10 border-emerald-500/60' : col.accent}`}>
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${col.dot}`} />
                 <span className="text-xs font-medium text-theme-secondary flex-1">{col.label}</span>
                 <div className="flex items-center gap-1.5">
@@ -235,8 +256,12 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
                   {colItems.length > 0 && <span className="text-xs text-theme-muted font-mono">{colItems.length}</span>}
                 </div>
               </div>
-              <div className={`flex-1 rounded-b-xl border ${col.accent} bg-theme-bg/50 p-2 space-y-2 min-h-[120px]`}>
-                {colItems.length === 0
+              <div className={`flex-1 rounded-b-xl border p-2 space-y-2 min-h-[120px] transition-colors
+                ${isDragTarget ? 'bg-emerald-500/5 border-emerald-500/60 border-dashed' : `bg-theme-bg/50 ${col.accent}`}`}>
+                {isDragTarget && (
+                  <div className="flex items-center justify-center h-10 text-xs text-emerald-500 font-medium">Soltar aqui</div>
+                )}
+                {colItems.length === 0 && !isDragTarget
                   ? <div className="flex items-center justify-center h-20"><span className="text-xs text-theme-muted">—</span></div>
                   : colItems.map(item => {
                       const typeCfg = TYPE_CONFIG[item.type]
@@ -244,8 +269,10 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
                       return (
                         <div
                           key={item.key}
+                          draggable
+                          onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragItem(item) }}
                           onClick={() => selectionMode && toggleSelect(item.key)}
-                          className={`group relative bg-theme-card border rounded-xl p-3 transition-all
+                          className={`group relative bg-theme-card border rounded-xl p-3 transition-all cursor-grab active:cursor-grabbing
                             ${isSelected ? 'border-emerald-500 bg-emerald-500/5 ring-1 ring-emerald-500/30' : 'border-theme-border hover:border-theme-border-strong'}
                             ${selectionMode ? 'cursor-pointer' : ''}`}
                         >

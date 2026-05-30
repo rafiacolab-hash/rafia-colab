@@ -4,6 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Deploy
+
+> **O projeto roda no Vercel.** Não existe servidor local ativo — o usuário acessa pelo link do Vercel.
+> Após qualquer alteração de código, é obrigatório fazer commit e push para o GitHub para que o Vercel publique automaticamente:
+
+```bash
+git add src/
+git commit -m "descrição da mudança"
+git push origin main
+```
+
+O Vercel detecta o push e faz o deploy em ~1-2 minutos.
+
+---
+
 ## Comandos
 
 ```bash
