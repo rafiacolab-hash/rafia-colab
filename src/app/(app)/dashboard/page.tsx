@@ -880,7 +880,7 @@ export default function DashboardPage() {
         ['acoes',   entry.acoes_content,   entry.acoes_status,   entry.acoes_format  ],
       ]
       for (const [type, content, status, format] of pieces) {
-        if (!status && !content) continue
+        if (!content) continue   // só exibe cards com descrição preenchida
         const cfg = TYPE_CONFIG[type]
         items.push({ key: `${entry.id}-${type}`, client, entry, type, typeLabel: cfg.label,
           typeDot: cfg.dot, typeColor: cfg.color, content, status, format })

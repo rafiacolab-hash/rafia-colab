@@ -19,6 +19,18 @@ O Vercel detecta o push e faz o deploy em ~1-2 minutos.
 
 ---
 
+## Regra de visualizações
+
+> Toda alteração em uma visualização (Lista, Kanban, Calendário, Cards) deve ser aplicada em **todas** as páginas que contêm aquela visualização:
+> - `src/components/KanbanView.tsx` → visão kanban por cliente (`/[clientId]/[monthRef]`)
+> - `src/app/(app)/dashboard/page.tsx` → contém `KanbanGlobal`, `GlobalListaView`, `GlobalCalendarView` (dashboard geral)
+> - `src/components/ListaView.tsx` → visão lista por cliente
+> - `src/components/CalendarView.tsx` → visão calendário por cliente
+>
+> Nunca atualizar só um lado sem verificar o outro.
+
+---
+
 ## Comandos
 
 ```bash
