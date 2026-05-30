@@ -68,26 +68,11 @@ function buildCalendarCells(monthRef: string, entries: DayEntry[]): CalendarCell
   return weeks
 }
 
-/* ─── Status dot ───────────────────────────────────────────────────────────── */
-const STATUS_DOT_LABEL: Record<string, string> = {
-  A_FAZER: 'A Fazer', ANDAMENTO: 'Em Andamento', AGUARDANDO: 'Ag. Aprovação',
-  CORRECAO: 'Em Correção', AGENDADO: 'Agendado', CONCLUIDO: 'Concluído',
-  POSTADO: 'Postado', CANCELADO: 'Cancelado', VALIDACAO: 'Em Validação',
-}
-
-function StatusDot({ status, label }: { status: DayEntryStatus; label: string }) {
-  const statusLabel = status ? STATUS_DOT_LABEL[status] ?? status : '—'
-  const dotClass = status ? STATUS_DOT[status] ?? 'bg-zinc-400' : 'bg-theme-surface border border-theme-border'
-  return (
-    <span
-      className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full
-        ${status ? 'bg-theme-surface/60' : 'opacity-40'}`}
-      title={`${label}: ${statusLabel}`}
-    >
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
-      <span className="text-theme-muted leading-none">{label}</span>
-    </span>
-  )
+/* ─── Content type chip config ─────────────────────────────────────────────── */
+const TYPE_CHIP = {
+  stories: { label: 'Stories', border: 'border-l-pink-400',    bg: 'bg-pink-500/10',    text: 'text-pink-600 dark:text-pink-300'    },
+  feed:    { label: 'Feed',    border: 'border-l-blue-400',    bg: 'bg-blue-500/10',    text: 'text-blue-600 dark:text-blue-300'    },
+  acoes:   { label: 'Ação',   border: 'border-l-emerald-400', bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-300' },
 }
 
 /* ─── Calendar cell ────────────────────────────────────────────────────────── */
@@ -95,40 +80,47 @@ function Cell({ cell, onSelect }: { cell: CalendarCell; onSelect: (e: DayEntry) 
   const { date, isCurrentMonth, entry } = cell
   const day = date.getDate()
   const isToday = cell.dateStr === new Date().toISOString().split('T')[0]
-  const hasContent = !!(entry?.stories_status || entry?.feed_status || entry?.acoes_status ||
-    entry?.stories_content || entry?.feed_content || entry?.acoes_content)
-  const isClickable = isCurrentMonth && entry && hasContent
+
+  // Apenas tipos com conteúdo preenchido
+  const chips = isCurrentMonth && entry
+    ? ([
+        ['stories', entry.stories_content, entry.stories_status],
+        ['feed',    entry.feed_content,    entry.feed_status   ],
+        ['acoes',   entry.acoes_content,   entry.acoes_status  ],
+      ] as const).filter(([, content]) => !!content)
+    : []
+
+  const isClickable = isCurrentMonth && chips.length > 0
 
   return (
     <div
-      onClick={() => isClickable && onSelect(entry)}
-      className={`group relative min-h-[80px] p-2 border-b border-r border-theme-border transition-colors
+      onClick={() => isClickable && entry && onSelect(entry)}
+      className={`group relative min-h-[100px] p-2 border-b border-r border-theme-border transition-colors
         ${isCurrentMonth ? 'bg-theme-bg' : 'bg-theme-surface/20'}
-        ${isClickable ? 'cursor-pointer hover:bg-theme-surface/40' : 'cursor-default'}`}
-      title={isClickable ? 'Clique para ver detalhes' : undefined}
+        ${isClickable ? 'cursor-pointer hover:bg-theme-surface/30' : 'cursor-default'}`}
     >
-      <div className="flex items-start justify-between mb-1.5">
-        <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full transition-colors
-          ${isToday ? 'bg-emerald-500 text-black font-bold' : ''}
-          ${!isToday && isCurrentMonth ? 'text-theme-primary' : ''}
-          ${!isCurrentMonth ? 'text-theme-muted' : ''}
-          ${isClickable && !isToday ? 'group-hover:bg-theme-surface' : ''}`}>
-          {day}
-        </span>
-        {isClickable && (
-          <span className="opacity-0 group-hover:opacity-100 text-[10px] text-theme-muted transition-opacity pr-0.5">
-            ver →
-          </span>
-        )}
-      </div>
+      {/* Número do dia */}
+      <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1.5
+        ${isToday ? 'bg-emerald-500 text-black font-bold' : isCurrentMonth ? 'text-theme-primary' : 'text-theme-muted'}`}>
+        {day}
+      </span>
 
-      {isCurrentMonth && entry && (
-        <div className="flex flex-col gap-0.5">
-          <StatusDot status={entry.stories_status} label="S" />
-          <StatusDot status={entry.feed_status}    label="F" />
-          <StatusDot status={entry.acoes_status}   label="A" />
-        </div>
-      )}
+      {/* Chips de conteúdo */}
+      <div className="flex flex-col gap-0.5">
+        {chips.map(([type, , status]) => {
+          const cfg = TYPE_CHIP[type]
+          const dotColor = status ? STATUS_DOT[status] ?? 'bg-zinc-400' : 'bg-zinc-600'
+          return (
+            <div key={type}
+              className={`flex items-center gap-1 border-l-2 ${cfg.border} ${cfg.bg} rounded-r px-1.5 py-0.5 truncate`}
+              title={cfg.label}
+            >
+              <span className={`text-[10px] font-medium ${cfg.text} truncate flex-1`}>{cfg.label}</span>
+              {status && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -284,16 +276,16 @@ function DayDetailPanel({
               )}
               {entry.arte_link && (
                 <div>
-                  <p className="text-xs font-semibold text-theme-muted uppercase tracking-wider mb-1">Arte</p>
-                  <a
-                    href={entry.arte_link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm text-emerald-500 hover:text-emerald-400 transition-colors"
-                  >
-                    <ExternalLink size={13} />
-                    Ver arte
-                  </a>
+                  <p className="text-xs font-semibold text-theme-muted uppercase tracking-wider mb-1">Arte / Links</p>
+                  <div className="flex flex-col gap-1">
+                    {entry.arte_link.split('\n').map(l => l.trim()).filter(Boolean).map((link, i) => (
+                      <a key={i} href={link} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-emerald-500 hover:text-emerald-400 transition-colors truncate">
+                        <ExternalLink size={13} className="flex-shrink-0" />
+                        {link}
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
               {entry.observacoes && (

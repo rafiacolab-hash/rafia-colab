@@ -504,6 +504,12 @@ function GlobalDayPanel({ dateStr, entries, clientMap, onClose, onEdit }: {
 }
 
 // ─── Global Calendar Cell ─────────────────────────────────────────────────────
+const GLOBAL_TYPE_CHIP = {
+  stories: { label: 'Stories', border: 'border-l-pink-400',    bg: 'bg-pink-500/10'    },
+  feed:    { label: 'Feed',    border: 'border-l-blue-400',    bg: 'bg-blue-500/10'    },
+  acoes:   { label: 'Ação',   border: 'border-l-emerald-400', bg: 'bg-emerald-500/10' },
+}
+
 function GlobalCalCell({ cell, dayEntries, clientMap, onSelect }: {
   cell: { date: Date; dateStr: string; isCurrentMonth: boolean }
   dayEntries: DayEntry[]
@@ -514,37 +520,56 @@ function GlobalCalCell({ cell, dayEntries, clientMap, onSelect }: {
   const isToday = dateStr === new Date().toISOString().split('T')[0]
   const day = date.getDate()
 
-  const clientsWithContent = isCurrentMonth
-    ? dayEntries
-        .filter(e => e.stories_status || e.feed_status || e.acoes_status || e.stories_content || e.feed_content || e.acoes_content)
-        .map(e => clientMap.get(e.client_id))
-        .filter((c): c is Client => !!c)
+  // Gera chips: só onde há conteúdo preenchido
+  const chips = isCurrentMonth
+    ? dayEntries.flatMap(entry => {
+        const client = clientMap.get(entry.client_id)
+        if (!client) return []
+        return (
+          [
+            ['stories', entry.stories_content] as const,
+            ['feed',    entry.feed_content   ] as const,
+            ['acoes',   entry.acoes_content  ] as const,
+          ]
+            .filter(([, content]) => !!content)
+            .map(([type]) => ({ type, clientName: client.name, clientColor: client.color }))
+        )
+      })
     : []
+
+  const MAX_VISIBLE = 4
 
   return (
     <div
-      onClick={() => clientsWithContent.length > 0 && onSelect(dateStr)}
-      className={`min-h-[80px] p-2 border-b border-r border-theme-border transition-colors
+      onClick={() => chips.length > 0 && onSelect(dateStr)}
+      className={`min-h-[100px] p-2 border-b border-r border-theme-border transition-colors
         ${isCurrentMonth ? 'bg-theme-bg' : 'bg-theme-surface/20'}
-        ${clientsWithContent.length > 0 ? 'cursor-pointer hover:bg-theme-surface/40' : 'cursor-default'}`}
+        ${chips.length > 0 ? 'cursor-pointer hover:bg-theme-surface/30' : 'cursor-default'}`}
     >
-      <div className="mb-2">
-        <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full
-          ${isToday ? 'bg-emerald-500 text-black font-bold' : isCurrentMonth ? 'text-theme-primary' : 'text-theme-muted'}`}>
-          {day}
-        </span>
+      <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1.5
+        ${isToday ? 'bg-emerald-500 text-black font-bold' : isCurrentMonth ? 'text-theme-primary' : 'text-theme-muted'}`}>
+        {day}
+      </span>
+
+      <div className="flex flex-col gap-0.5">
+        {chips.slice(0, MAX_VISIBLE).map((chip, i) => {
+          const cfg = GLOBAL_TYPE_CHIP[chip.type]
+          return (
+            <div key={i}
+              className={`flex items-center gap-1 border-l-2 ${cfg.border} ${cfg.bg} rounded-r px-1.5 py-0.5 truncate`}
+              title={`${chip.clientName} | ${cfg.label}`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: chip.clientColor }} />
+              <span className="text-[10px] font-medium text-theme-secondary truncate flex-1">
+                {chip.clientName} | {cfg.label}
+              </span>
+            </div>
+          )
+        })}
+        {chips.length > MAX_VISIBLE && (
+          <span className="text-[10px] text-theme-muted pl-1">+{chips.length - MAX_VISIBLE} mais</span>
+        )}
       </div>
-      {clientsWithContent.length > 0 && (
-        <div className="flex flex-wrap gap-0.5">
-          {clientsWithContent.slice(0, 6).map((client, i) => (
-            <span key={i} className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: client.color }} title={client.name} />
-          ))}
-          {clientsWithContent.length > 6 && (
-            <span className="text-[10px] text-theme-muted leading-none">+{clientsWithContent.length - 6}</span>
-          )}
-        </div>
-      )}
     </div>
   )
 }
