@@ -1,35 +1,28 @@
 'use client'
 
-import { useState } from 'react'
-import { X, Save, Loader2, ExternalLink } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { X, Save, Loader2, ExternalLink, Check, ChevronDown } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
 import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
 
-const STATUS_OPTIONS: { value: DayEntryStatus; label: string }[] = [
-  { value: null,         label: '—'            },
-  { value: 'A_FAZER',    label: 'A Fazer'       },
-  { value: 'ANDAMENTO',  label: 'Em Andamento'  },
-  { value: 'AGUARDANDO', label: 'Ag. Aprovação' },
-  { value: 'CORRECAO',   label: 'Em Correção'   },
-  { value: 'AGENDADO',   label: 'Agendado'      },
-  { value: 'CONCLUIDO',  label: 'Concluído'     },
-  { value: 'POSTADO',    label: 'Postado'       },
-  { value: 'CANCELADO',  label: 'Cancelado'     },
+const STATUS_OPTIONS: { value: DayEntryStatus; label: string; dot: string }[] = [
+  { value: null,         label: '—',             dot: 'bg-theme-border'  },
+  { value: 'A_FAZER',    label: 'A Fazer',        dot: 'bg-zinc-500'      },
+  { value: 'ANDAMENTO',  label: 'Em Andamento',   dot: 'bg-blue-400'      },
+  { value: 'AGUARDANDO', label: 'Ag. Aprovação',  dot: 'bg-amber-400'     },
+  { value: 'CORRECAO',   label: 'Em Correção',    dot: 'bg-red-400'       },
+  { value: 'AGENDADO',   label: 'Agendado',       dot: 'bg-sky-400'       },
+  { value: 'CONCLUIDO',  label: 'Concluído',      dot: 'bg-violet-400'    },
+  { value: 'POSTADO',    label: 'Postado',        dot: 'bg-emerald-400'   },
+  { value: 'CANCELADO',  label: 'Cancelado',      dot: 'bg-zinc-400'      },
 ]
 
-// Classes do select colorizadas por status (funciona em ambos os temas por usar cores fixas com alpha)
-const STATUS_BG: Record<string, string> = {
-  A_FAZER:    'bg-zinc-500/15 text-zinc-600 dark:text-zinc-400 border-zinc-500/30',
-  ANDAMENTO:  'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30',
-  AGUARDANDO: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
-  CORRECAO:   'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30',
-  AGENDADO:   'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30',
-  CONCLUIDO:  'bg-violet-500/15 text-violet-700 dark:text-violet-400 border-violet-500/30',
-  POSTADO:    'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
-  CANCELADO:  'bg-theme-surface/50 text-theme-muted border-theme-border',
-  // legado
-  VALIDACAO:  'bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/30',
-}
+const STATUS_LABEL: Record<string, string> = Object.fromEntries(
+  STATUS_OPTIONS.filter(o => o.value).map(o => [o.value, o.label])
+)
+const STATUS_DOT: Record<string, string> = Object.fromEntries(
+  STATUS_OPTIONS.filter(o => o.value).map(o => [o.value, o.dot])
+)
 
 type Props  = { entry: DayEntry; onClose: () => void; onSaved: () => void }
 
@@ -48,20 +41,57 @@ function formatFullDate(entry: DayEntry): string {
 }
 
 function StatusSelect({ value, onChange }: { value: DayEntryStatus; onChange: (v: DayEntryStatus) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const select = (v: DayEntryStatus) => {
+    setOpen(false)
+    onChange(v)
+  }
+
+  const currentLabel = value ? (STATUS_LABEL[value] ?? value) : '—'
+  const currentDot   = value ? (STATUS_DOT[value]  ?? 'bg-zinc-400') : 'bg-theme-border'
+
   return (
-    <select
-      value={value ?? ''}
-      onChange={e => onChange((e.target.value || null) as DayEntryStatus)}
-      className={`w-full appearance-none rounded-md border px-2.5 py-1.5 text-xs font-medium
-        bg-theme-bg cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors
-        ${value ? STATUS_BG[value] : 'bg-theme-surface/50 text-theme-muted border-theme-border'}`}
-    >
-      {STATUS_OPTIONS.map(opt => (
-        <option key={opt.value ?? 'null'} value={opt.value ?? ''} className="bg-theme-card text-theme-primary">
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 rounded-md border border-theme-border bg-theme-surface px-2.5 py-1.5 text-xs font-medium text-theme-secondary hover:bg-theme-raised transition-colors"
+      >
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${currentDot}`} />
+        <span className="flex-1 text-left">{currentLabel}</span>
+        <ChevronDown size={12} className={`flex-shrink-0 text-theme-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-theme-card border border-theme-border rounded-xl shadow-2xl p-1.5 min-w-full">
+          {STATUS_OPTIONS.map(opt => (
+            <button
+              key={opt.value ?? 'none'}
+              type="button"
+              onClick={() => select(opt.value)}
+              className={`w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-theme-surface transition-colors flex items-center gap-2.5 ${
+                value === opt.value ? 'bg-theme-surface/80' : ''
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${opt.dot}`} />
+              <span className="text-theme-secondary flex-1">{opt.label}</span>
+              {value === opt.value && <Check size={11} className="text-emerald-400" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
