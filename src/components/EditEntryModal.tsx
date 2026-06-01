@@ -152,7 +152,12 @@ export default function EditEntryModal({ entry, onClose, onSaved }: Props) {
       if (err) throw err
       onSaved()
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar.')
+      const msg =
+        e instanceof Error ? e.message :
+        (e && typeof e === 'object' && 'message' in e) ? String((e as { message: unknown }).message) :
+        JSON.stringify(e)
+      console.error('[EditEntryModal] save error:', e)
+      setError(msg || 'Erro ao salvar.')
       setSaving(false)
     }
   }
