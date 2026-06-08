@@ -119,12 +119,23 @@ export default function Sidebar() {
               Usuários
             </button>
             <button onClick={() => router.push('/admin/import')}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-2 transition-colors ${
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-1 transition-colors ${
                 pathname.startsWith('/admin/import')
                   ? 'bg-theme-surface text-theme-primary'
                   : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
               }`}>
               Importar CSV
+            </button>
+            <button onClick={() => router.push('/admin/produtividade')}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-2 transition-colors flex items-center gap-2 ${
+                pathname.startsWith('/admin/produtividade')
+                  ? 'bg-theme-surface text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
+              }`}>
+              <span className="flex-1">Produtividade</span>
+              {pathname.startsWith('/admin/produtividade') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+              )}
             </button>
           </>
         )}

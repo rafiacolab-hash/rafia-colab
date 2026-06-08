@@ -5,9 +5,10 @@ import { ChevronDown, ChevronRight, Pencil, Check, Loader2 } from 'lucide-react'
 import StatusBadge from './StatusBadge'
 import EditEntryModal from './EditEntryModal'
 import { createDataClient } from '@/app/lib/supabase'
+import { logActivity, type ActivityCtx } from '@/app/lib/activity'
 import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
 
-type Props = { entries: DayEntry[]; onRefresh: () => void }
+type Props = { entries: DayEntry[]; onRefresh: () => void; activityCtx?: ActivityCtx }
 
 /* ─── Status options ───────────────────────────────────────────────────────── */
 const STATUS_OPTIONS: { value: DayEntryStatus; label: string; dot: string }[] = [
@@ -33,12 +34,13 @@ async function saveField(entryId: string, field: string, value: string | null) {
 
 /* ─── Inline status selector ───────────────────────────────────────────────── */
 function InlineStatus({
-  status, field, entryId, onSaved,
+  status, field, entryId, onSaved, onChanged,
 }: {
   status: DayEntryStatus
   field: string
   entryId: string
   onSaved: (value: DayEntryStatus) => void
+  onChanged?: (field: string, oldValue: string | null, newValue: string | null) => void
 }) {
   const [open, setSaving_open] = useState(false)
   const [saving, setSaving]  = useState(false)
@@ -60,6 +62,7 @@ function InlineStatus({
     setSaving(true)
     try {
       await saveField(entryId, field, value)
+      onChanged?.(field, status, value)
       onSaved(value)
     } catch { /* silent */ } finally {
       setSaving(false)
@@ -108,7 +111,7 @@ function InlineStatus({
 /* ─── Inline content editor ─────────────────────────────────────────────────── */
 function InlineContent({
   content, field, entryId, onSaved,
-  autoStatusField, currentStatus, onStatusSaved,
+  autoStatusField, currentStatus, onStatusSaved, onChanged,
 }: {
   content: string | null
   field: string
@@ -117,6 +120,7 @@ function InlineContent({
   autoStatusField?: string
   currentStatus?: DayEntryStatus | null
   onStatusSaved?: (value: DayEntryStatus) => void
+  onChanged?: (field: string, oldValue: string | null, newValue: string | null) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(content ?? '')
@@ -145,6 +149,7 @@ function InlineContent({
     setSaving(true)
     try {
       await saveField(entryId, field, val)
+      onChanged?.(field, content, val)
       onSaved(val)
       // Auto-set status to A_FAZER when content is first entered and status is null
       if (val && autoStatusField && !currentStatus) {
@@ -282,7 +287,7 @@ function InlineLinks({
 }
 
 /* ─── Main component ────────────────────────────────────────────────────────── */
-export default function ListaView({ entries, onRefresh }: Props) {
+export default function ListaView({ entries, onRefresh, activityCtx }: Props) {
   const [expanded,     setExpanded]     = useState<Record<string, boolean>>({})
   const [editingEntry, setEditingEntry] = useState<DayEntry | null>(null)
 
@@ -292,6 +297,22 @@ export default function ListaView({ entries, onRefresh }: Props) {
 
   const patch = (id: string, update: Partial<DayEntry>) =>
     setLocal(prev => prev.map(e => e.id === id ? { ...e, ...update } : e))
+
+  // Cria callback de log para um entry específico
+  const makeLogFn = (entry: DayEntry, actionType: 'status_change' | 'content_edit') =>
+    (field: string, oldValue: string | null, newValue: string | null) => {
+      if (!activityCtx) return
+      logActivity({
+        ctx: activityCtx,
+        actionType,
+        entryId: entry.id,
+        clientId: entry.client_id,
+        entryDate: entry.entry_date,
+        field,
+        oldValue,
+        newValue,
+      })
+    }
 
   // Oculta dias completamente vazios (sem conteúdo e sem status em nenhum dos três campos)
   const hasAnything = (e: DayEntry) =>
@@ -383,6 +404,7 @@ export default function ListaView({ entries, onRefresh }: Props) {
                           field="stories_status"
                           entryId={entry.id}
                           onSaved={v => patch(entry.id, { stories_status: v })}
+                          onChanged={makeLogFn(entry, 'status_change')}
                         />
                       </div>
                       {entry.stories_format && (
@@ -398,6 +420,7 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         autoStatusField="stories_status"
                         currentStatus={entry.stories_status}
                         onStatusSaved={v => patch(entry.id, { stories_status: v })}
+                        onChanged={makeLogFn(entry, 'content_edit')}
                       />
                     </div>
 
@@ -410,6 +433,7 @@ export default function ListaView({ entries, onRefresh }: Props) {
                           field="feed_status"
                           entryId={entry.id}
                           onSaved={v => patch(entry.id, { feed_status: v })}
+                          onChanged={makeLogFn(entry, 'status_change')}
                         />
                       </div>
                       {entry.feed_format && (
@@ -425,6 +449,7 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         autoStatusField="feed_status"
                         currentStatus={entry.feed_status}
                         onStatusSaved={v => patch(entry.id, { feed_status: v })}
+                        onChanged={makeLogFn(entry, 'content_edit')}
                       />
                     </div>
 
@@ -437,6 +462,7 @@ export default function ListaView({ entries, onRefresh }: Props) {
                           field="acoes_status"
                           entryId={entry.id}
                           onSaved={v => patch(entry.id, { acoes_status: v })}
+                          onChanged={makeLogFn(entry, 'status_change')}
                         />
                       </div>
                       {entry.acoes_format && (
@@ -452,6 +478,7 @@ export default function ListaView({ entries, onRefresh }: Props) {
                         autoStatusField="acoes_status"
                         currentStatus={entry.acoes_status}
                         onStatusSaved={v => patch(entry.id, { acoes_status: v })}
+                        onChanged={makeLogFn(entry, 'content_edit')}
                       />
                     </div>
                   </div>

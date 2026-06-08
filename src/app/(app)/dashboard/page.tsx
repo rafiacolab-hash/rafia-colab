@@ -8,6 +8,8 @@ import {
   Pencil, X, ChevronDown, Filter, Check,
 } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
+import { logActivity, type ActivityCtx } from '@/app/lib/activity'
+import { useAuth } from '@/hooks/useAuth'
 import type { DayEntryStatus, DayEntry } from '@/app/lib/entries'
 import EditEntryModal from '@/components/EditEntryModal'
 import ListaView    from '@/components/ListaView'
@@ -179,11 +181,12 @@ const STATUS_FIELD_MAP: Record<'stories' | 'feed' | 'acoes', string> = {
   acoes:   'acoes_status',
 }
 
-function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
+function KanbanGlobal({ items, onEdit, onNavigate, onRefresh, activityCtx }: {
   items: KanbanItem[]
   onEdit: (e: DayEntry) => void
   onNavigate: (clientId: string) => void
   onRefresh: () => void
+  activityCtx?: ActivityCtx
 }) {
   const [selected,    setSelected]    = useState<Set<string>>(new Set())
   const [bulkSaving,  setBulkSaving]  = useState(false)
@@ -200,6 +203,18 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
     await supabase.from('day_entries')
       .update({ [STATUS_FIELD_MAP[dragItem.type]]: targetStatus, updated_at: new Date().toISOString() })
       .eq('id', dragItem.entry.id)
+    if (activityCtx) {
+      logActivity({
+        ctx: { ...activityCtx, clientName: dragItem.client.name },
+        actionType: 'status_change',
+        entryId: dragItem.entry.id,
+        clientId: dragItem.client.id,
+        entryDate: dragItem.entry.entry_date,
+        field: STATUS_FIELD_MAP[dragItem.type],
+        oldValue: dragItem.status,
+        newValue: targetStatus,
+      })
+    }
     setDragItem(null)
     onRefresh()
   }
@@ -216,6 +231,20 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
         .update({ [STATUS_FIELD_MAP[item.type]]: newStatus, updated_at: new Date().toISOString() })
         .eq('id', item.entry.id)
     ))
+    if (activityCtx) {
+      for (const item of toUpdate) {
+        logActivity({
+          ctx: { ...activityCtx, clientName: item.client.name },
+          actionType: 'status_change',
+          entryId: item.entry.id,
+          clientId: item.client.id,
+          entryDate: item.entry.entry_date,
+          field: STATUS_FIELD_MAP[item.type],
+          oldValue: item.status,
+          newValue: newStatus,
+        })
+      }
+    }
     setBulkSaving(false)
     setSelected(new Set())
     onRefresh()
@@ -359,10 +388,11 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh }: {
 }
 
 // ─── Global Lista ─────────────────────────────────────────────────────────────
-function GlobalListaView({ summaries, fullEntries, onRefresh }: {
+function GlobalListaView({ summaries, fullEntries, onRefresh, activityCtx }: {
   summaries: ClientSummary[]
   fullEntries: DayEntry[]
   onRefresh: () => void
+  activityCtx?: Omit<ActivityCtx, 'clientName'>
 }) {
   const byClient = useMemo(() => {
     const map = new Map<string, DayEntry[]>()
@@ -394,7 +424,11 @@ function GlobalListaView({ summaries, fullEntries, onRefresh }: {
               <h3 className="text-sm font-semibold text-theme-primary">{client.name}</h3>
               <span className="text-xs text-theme-muted">{entries.length} dias planejados</span>
             </div>
-            <ListaView entries={entries} onRefresh={onRefresh} />
+            <ListaView
+              entries={entries}
+              onRefresh={onRefresh}
+              activityCtx={activityCtx ? { ...activityCtx, clientName: client.name } : undefined}
+            />
           </div>
         )
       })}
@@ -749,6 +783,7 @@ type ViewMode = 'cards' | 'lista' | 'kanban' | 'calendario'
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { userId, userName } = useAuth()
   const [monthRef,  setMonthRef]  = useState(currentMonthRef)
   const [summaries, setSummaries] = useState<ClientSummary[]>([])
   const [loading,   setLoading]   = useState(true)
@@ -1071,7 +1106,12 @@ export default function DashboardPage() {
             </div>
 
           ) : viewMode === 'lista' ? (
-            <GlobalListaView summaries={filteredSummaries} fullEntries={filteredEntries} onRefresh={loadFull} />
+            <GlobalListaView
+              summaries={filteredSummaries}
+              fullEntries={filteredEntries}
+              onRefresh={loadFull}
+              activityCtx={userId ? { userId, userName } : undefined}
+            />
 
           ) : viewMode === 'kanban' ? (
             kanbanItems.length === 0 ? (
@@ -1079,9 +1119,13 @@ export default function DashboardPage() {
                 <p className="text-theme-secondary text-sm">Nenhum conteúdo planejado para {formatMonth(monthRef)}.</p>
               </div>
             ) : (
-              <KanbanGlobal items={kanbanItems} onEdit={setEditingEntry}
+              <KanbanGlobal
+                items={kanbanItems}
+                onEdit={setEditingEntry}
                 onNavigate={(id) => router.push(`/${id}/${monthRef}`)}
-                onRefresh={loadFull} />
+                onRefresh={loadFull}
+                activityCtx={userId ? { userId, userName, clientName: '' } : undefined}
+              />
             )
 
           ) : (

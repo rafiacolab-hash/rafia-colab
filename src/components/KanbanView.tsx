@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Pencil, Check, X, ChevronDown } from 'lucide-react'
 import EditEntryModal from './EditEntryModal'
 import { createDataClient } from '@/app/lib/supabase'
+import { logActivity, type ActivityCtx } from '@/app/lib/activity'
 import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
 
 type ContentType = 'stories' | 'feed' | 'acoes'
@@ -14,7 +15,7 @@ type ContentItem = {
   status: DayEntryStatus; format: string | null
 }
 
-type Props = { entries: DayEntry[]; onRefresh: () => void }
+type Props = { entries: DayEntry[]; onRefresh: () => void; activityCtx?: ActivityCtx }
 
 type Column = { status: DayEntryStatus; label: string; dotColor: string; accent: string }
 
@@ -182,7 +183,7 @@ function BulkActionBar({
 }
 
 // ─── Main KanbanView ──────────────────────────────────────────────────────────
-export default function KanbanView({ entries, onRefresh }: Props) {
+export default function KanbanView({ entries, onRefresh, activityCtx }: Props) {
   const [editingEntry,   setEditingEntry]   = useState<DayEntry | null>(null)
   const [selected,       setSelected]       = useState<Set<string>>(new Set())
   const [saving,         setSaving]         = useState(false)
@@ -250,6 +251,21 @@ export default function KanbanView({ entries, onRefresh }: Props) {
           .eq('id', item.entry.id)
       )
     )
+    // Log cada mudança de status
+    if (activityCtx) {
+      for (const item of selectedItems) {
+        logActivity({
+          ctx: activityCtx,
+          actionType: 'status_change',
+          entryId: item.entry.id,
+          clientId: item.entry.client_id,
+          entryDate: item.entry.entry_date,
+          field: STATUS_FIELD[item.type],
+          oldValue: item.status,
+          newValue: newStatus,
+        })
+      }
+    }
     setSaving(false)
     setSelected(new Set())
     onRefresh()
@@ -264,6 +280,18 @@ export default function KanbanView({ entries, onRefresh }: Props) {
       .from('day_entries')
       .update({ [STATUS_FIELD[dragItem.type]]: targetStatus, updated_at: new Date().toISOString() })
       .eq('id', dragItem.entry.id)
+    if (activityCtx) {
+      logActivity({
+        ctx: activityCtx,
+        actionType: 'status_change',
+        entryId: dragItem.entry.id,
+        clientId: dragItem.entry.client_id,
+        entryDate: dragItem.entry.entry_date,
+        field: STATUS_FIELD[dragItem.type],
+        oldValue: dragItem.status,
+        newValue: targetStatus,
+      })
+    }
     setDragItem(null)
     onRefresh()
   }

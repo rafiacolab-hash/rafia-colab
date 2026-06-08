@@ -25,7 +25,7 @@ type Props = { params: { clientId: string; monthRef: string } }
 
 export default function ClientMonthPage({ params }: Props) {
   const { clientId, monthRef } = params
-  const { isAdmin, isAssistant } = useAuth()
+  const { isAdmin, isAssistant, userId, userName } = useAuth()
   const canManage = isAdmin || isAssistant
   const router = useRouter()
   const [entries, setEntries]   = useState<DayEntry[]>([])
@@ -130,9 +130,17 @@ export default function ClientMonthPage({ params }: Props) {
             )}
           </div>
         ) : viewMode === 'lista' ? (
-          <ListaView entries={entries} onRefresh={fetchEntries} />
+          <ListaView
+            entries={entries}
+            onRefresh={fetchEntries}
+            activityCtx={userId ? { userId, userName, clientName } : undefined}
+          />
         ) : viewMode === 'kanban' ? (
-          <KanbanView entries={entries} onRefresh={fetchEntries} />
+          <KanbanView
+            entries={entries}
+            onRefresh={fetchEntries}
+            activityCtx={userId ? { userId, userName, clientName } : undefined}
+          />
         ) : (
           <CalendarView entries={entries} monthRef={monthRef} onRefresh={fetchEntries} />
         )}
