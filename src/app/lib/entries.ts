@@ -78,6 +78,9 @@ export async function generateMonthEntries(
       client_id: clientId,
       entry_date: date.toISOString().split('T')[0],
       dia_semana: DAYS[date.getDay()],
+      stories_status: 'A_FAZER',
+      feed_status: 'A_FAZER',
+      acoes_status: 'A_FAZER',
     }
   })
 
