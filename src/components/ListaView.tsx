@@ -19,7 +19,7 @@ const STATUS_OPTIONS: { value: DayEntryStatus; label: string; dot: string }[] = 
   { value: 'AGENDADO',   label: 'Agendado',      dot: 'bg-sky-400'     },
   { value: 'CONCLUIDO',  label: 'Concluído',     dot: 'bg-violet-400'  },
   { value: 'POSTADO',    label: 'Postado',       dot: 'bg-emerald-400' },
-  { value: 'CANCELADO',  label: 'Cancelado',     dot: 'bg-zinc-400'    },
+  { value: 'CANCELADO',  label: 'Cancelado/Pendente', dot: 'bg-zinc-400' },
 ]
 
 /* ─── Save a single field to Supabase ──────────────────────────────────────── */

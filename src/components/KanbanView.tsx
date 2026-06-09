@@ -27,7 +27,7 @@ const COLUMNS: Column[] = [
   { status: 'AGENDADO',   label: 'Agendado',      dotColor: 'bg-sky-500',     accent: 'border-sky-500/50'     },
   { status: 'CONCLUIDO',  label: 'Concluído',     dotColor: 'bg-violet-500',  accent: 'border-violet-500/50'  },
   { status: 'POSTADO',    label: 'Postado',       dotColor: 'bg-emerald-500', accent: 'border-emerald-500/50' },
-  { status: 'CANCELADO',  label: 'Cancelado',     dotColor: 'bg-zinc-400',    accent: 'border-theme-border'   },
+  { status: 'CANCELADO',  label: 'Cancelado/Pendente', dotColor: 'bg-zinc-400', accent: 'border-theme-border'   },
 ]
 
 const TYPE_CONFIG: Record<ContentType, { label: string; dot: string; textColor: string }> = {
@@ -223,7 +223,7 @@ export default function KanbanView({ entries, onRefresh, activityCtx }: Props) {
 
   const visibleColumns = COLUMNS.filter(col => {
     if (filterStatuses.length > 0) return filterStatuses.includes(col.status)
-    return col.status === 'CANCELADO' ? (byStatus.get('CANCELADO')?.length ?? 0) > 0 : true
+    return true
   })
 
   const selectionMode = selected.size > 0

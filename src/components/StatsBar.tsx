@@ -10,7 +10,7 @@ const STATUS_CONFIG: Record<NonNullable<DayEntryStatus>, { label: string; color:
   AGENDADO:   { label: 'Agendado',      color: 'bg-sky-500'     },
   CONCLUIDO:  { label: 'Concluído',     color: 'bg-violet-500'  },
   POSTADO:    { label: 'Postado',       color: 'bg-emerald-500' },
-  CANCELADO:  { label: 'Cancelado',     color: 'bg-zinc-400'    },
+  CANCELADO:  { label: 'Cancelado/Pendente', color: 'bg-zinc-400' },
 }
 
 // Fallback para status legados (ex: VALIDACAO de entradas antigas)

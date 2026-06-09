@@ -6,7 +6,7 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   AGENDADO:   { label: 'Agendado',      className: 'bg-sky-500/20 text-sky-600 dark:text-sky-400 border-sky-500/30' },
   CONCLUIDO:  { label: 'Concluído',     className: 'bg-violet-500/20 text-violet-600 dark:text-violet-400 border-violet-500/30' },
   POSTADO:    { label: 'Postado',       className: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' },
-  CANCELADO:  { label: 'Cancelado',     className: 'bg-theme-surface/50 text-theme-muted border-theme-border' },
+  CANCELADO:  { label: 'Cancelado/Pendente', className: 'bg-theme-surface/50 text-theme-muted border-theme-border' },
   // legado – entradas antigas podem ainda ter este valor
   VALIDACAO:  { label: 'Em Validação',  className: 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/30' },
 }

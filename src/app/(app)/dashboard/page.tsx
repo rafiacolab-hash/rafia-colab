@@ -51,7 +51,7 @@ const STATUS_CONFIG: Record<NonNullable<DayEntryStatus>, { label: string; color:
   AGENDADO:   { label: 'Agendado',      color: 'text-sky-400',         bg: 'bg-sky-500'      },
   CONCLUIDO:  { label: 'Concluído',     color: 'text-violet-400',      bg: 'bg-violet-500'   },
   POSTADO:    { label: 'Postado',       color: 'text-emerald-400',     bg: 'bg-emerald-500'  },
-  CANCELADO:  { label: 'Cancelado',     color: 'text-theme-muted',     bg: 'bg-theme-raised' },
+  CANCELADO:  { label: 'Cancelado/Pendente', color: 'text-theme-muted', bg: 'bg-theme-raised' },
 }
 
 const VISIBLE_STATUSES: NonNullable<DayEntryStatus>[] = [
@@ -66,7 +66,7 @@ const KANBAN_COLUMNS: { status: DayEntryStatus; label: string; dot: string; acce
   { status: 'AGENDADO',   label: 'Agendado',      dot: 'bg-sky-500',     accent: 'border-sky-500/50'      },
   { status: 'CONCLUIDO',  label: 'Concluído',     dot: 'bg-violet-500',  accent: 'border-violet-500/50'   },
   { status: 'POSTADO',    label: 'Postado',       dot: 'bg-emerald-500', accent: 'border-emerald-500/50'  },
-  { status: 'CANCELADO',  label: 'Cancelado',     dot: 'bg-zinc-400',    accent: 'border-theme-border'    },
+  { status: 'CANCELADO',  label: 'Cancelado/Pendente', dot: 'bg-zinc-400', accent: 'border-theme-border'    },
 ]
 
 const TYPE_CONFIG = {
@@ -257,9 +257,7 @@ function KanbanGlobal({ items, onEdit, onNavigate, onRefresh, activityCtx }: {
     if (!byStatus.has(key)) byStatus.set(key, [])
     byStatus.get(key)!.push(item)
   }
-  const visibleColumns = KANBAN_COLUMNS.filter(col =>
-    col.status === 'CANCELADO' ? (byStatus.get('CANCELADO')?.length ?? 0) > 0 : true
-  )
+  const visibleColumns = KANBAN_COLUMNS
 
   return (
     <>
