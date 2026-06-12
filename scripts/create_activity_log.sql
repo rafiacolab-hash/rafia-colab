@@ -1,8 +1,12 @@
--- ─── activity_log ────────────────────────────────────────────────────────────
--- Tabela para rastrear ações dos assistentes (mudanças de status e edições de conteúdo)
--- Execute este script no Supabase > SQL Editor
+-- ─── activity_log — VERSÃO LIMPA ─────────────────────────────────────────────
+-- Apaga tudo que existir antes e recria do zero.
+-- Execute no Supabase > SQL Editor
 
-CREATE TABLE IF NOT EXISTS activity_log (
+-- 1. Remove tabela anterior (e tudo que depende dela)
+DROP TABLE IF EXISTS activity_log CASCADE;
+
+-- 2. Cria a tabela
+CREATE TABLE activity_log (
   id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id     UUID        NOT NULL,
   user_name   TEXT        NOT NULL,
@@ -17,22 +21,22 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
--- Índices para queries do dashboard
-CREATE INDEX IF NOT EXISTS idx_activity_log_user_id     ON activity_log (user_id);
-CREATE INDEX IF NOT EXISTS idx_activity_log_client_id   ON activity_log (client_id);
-CREATE INDEX IF NOT EXISTS idx_activity_log_created_at  ON activity_log (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_activity_log_action_type ON activity_log (action_type);
+-- 3. Índices
+CREATE INDEX idx_activity_log_user_id    ON activity_log (user_id);
+CREATE INDEX idx_activity_log_client_id  ON activity_log (client_id);
+CREATE INDEX idx_activity_log_created_at ON activity_log (created_at DESC);
+CREATE INDEX idx_activity_log_action     ON activity_log (action_type);
 
--- ─── RLS ──────────────────────────────────────────────────────────────────────
+-- 4. RLS
 ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
 
--- Qualquer usuário autenticado pode inserir seus próprios registros
-CREATE POLICY "authenticated_insert" ON activity_log
+-- Qualquer autenticado pode inserir
+CREATE POLICY "activity_insert" ON activity_log
   FOR INSERT
   WITH CHECK (auth.uid() IS NOT NULL);
 
 -- Admins leem tudo
-CREATE POLICY "admin_select_all" ON activity_log
+CREATE POLICY "activity_admin_select" ON activity_log
   FOR SELECT
   USING (
     EXISTS (
@@ -41,7 +45,12 @@ CREATE POLICY "admin_select_all" ON activity_log
     )
   );
 
--- Assistentes leem apenas os próprios registros
-CREATE POLICY "user_select_own" ON activity_log
+-- Cada usuário lê apenas os próprios logs
+CREATE POLICY "activity_own_select" ON activity_log
   FOR SELECT
   USING (user_id = auth.uid());
+
+-- 5. Permissões de acesso (OBRIGATÓRIO — sem isso a tabela fica inacessível via PostgREST)
+GRANT SELECT, INSERT ON public.activity_log TO anon;
+GRANT SELECT, INSERT ON public.activity_log TO authenticated;
+GRANT ALL ON public.activity_log TO service_role;
