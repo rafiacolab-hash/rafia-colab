@@ -607,12 +607,13 @@ function GlobalCalCell({ cell, dayEntries, clientMap, onSelect }: {
 }
 
 // ─── Global Calendar View ─────────────────────────────────────────────────────
-function GlobalCalendarView({ fullEntries, clientMap, monthRef, onEdit, onRefresh }: {
+function GlobalCalendarView({ fullEntries, clientMap, monthRef, onEdit, onRefresh, activityCtx }: {
   fullEntries: DayEntry[]
   clientMap: Map<string, Client>
   monthRef: string
   onEdit: (e: DayEntry) => void
   onRefresh: () => void
+  activityCtx?: Omit<ActivityCtx, 'clientName'>
 }) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [editingEntry, setEditingEntry] = useState<DayEntry | null>(null)
@@ -696,6 +697,9 @@ function GlobalCalendarView({ fullEntries, clientMap, monthRef, onEdit, onRefres
           entry={editingEntry}
           onClose={() => setEditingEntry(null)}
           onSaved={() => { setEditingEntry(null); setSelectedDate(null); onRefresh() }}
+          activityCtx={activityCtx
+            ? { ...activityCtx, clientName: clientMap.get(editingEntry.client_id)?.name ?? '' }
+            : undefined}
         />
       )}
     </>
@@ -1139,6 +1143,7 @@ export default function DashboardPage() {
                 monthRef={monthRef}
                 onEdit={setEditingEntry}
                 onRefresh={loadFull}
+                activityCtx={userId ? { userId, userName } : undefined}
               />
             )
           )}
@@ -1148,7 +1153,10 @@ export default function DashboardPage() {
       {editingEntry && (
         <EditEntryModal entry={editingEntry}
           onClose={() => setEditingEntry(null)}
-          onSaved={() => { setEditingEntry(null); loadFull() }} />
+          onSaved={() => { setEditingEntry(null); loadFull() }}
+          activityCtx={userId
+            ? { userId, userName, clientName: clientMap.get(editingEntry.client_id)?.name ?? '' }
+            : undefined} />
       )}
     </>
   )

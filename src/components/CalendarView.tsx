@@ -5,6 +5,7 @@ import { X, Pencil, ExternalLink, FileText, ImageIcon, Zap } from 'lucide-react'
 import EditEntryModal from './EditEntryModal'
 import StatusBadge from './StatusBadge'
 import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
+import type { ActivityCtx } from '@/app/lib/activity'
 
 /* ─── Dot colors (calendar grid) ──────────────────────────────────────────── */
 const STATUS_DOT: Record<string, string> = {
@@ -20,7 +21,7 @@ const STATUS_DOT: Record<string, string> = {
   VALIDACAO:  'bg-purple-400',
 }
 
-type Props = { entries: DayEntry[]; monthRef: string; onRefresh: () => void }
+type Props = { entries: DayEntry[]; monthRef: string; onRefresh: () => void; activityCtx?: ActivityCtx }
 
 type CalendarCell = {
   date: Date
@@ -320,7 +321,7 @@ function DayDetailPanel({
 }
 
 /* ─── Main export ──────────────────────────────────────────────────────────── */
-export default function CalendarView({ entries, monthRef, onRefresh }: Props) {
+export default function CalendarView({ entries, monthRef, onRefresh, activityCtx }: Props) {
   const [selectedEntry, setSelectedEntry] = useState<DayEntry | null>(null)
   const [editingEntry,  setEditingEntry]  = useState<DayEntry | null>(null)
   const weeks = buildCalendarCells(monthRef, entries)
@@ -398,6 +399,7 @@ export default function CalendarView({ entries, monthRef, onRefresh }: Props) {
             setSelectedEntry(null)
             onRefresh()
           }}
+          activityCtx={activityCtx}
         />
       )}
     </>

@@ -142,7 +142,8 @@ export default function ClientMonthPage({ params }: Props) {
             activityCtx={userId ? { userId, userName, clientName } : undefined}
           />
         ) : (
-          <CalendarView entries={entries} monthRef={monthRef} onRefresh={fetchEntries} />
+          <CalendarView entries={entries} monthRef={monthRef} onRefresh={fetchEntries}
+            activityCtx={userId ? { userId, userName, clientName } : undefined} />
         )}
       </div>
 

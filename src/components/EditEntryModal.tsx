@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { X, Save, Loader2, ExternalLink, Check, ChevronDown } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
+import { logActivity, type ActivityCtx } from '@/app/lib/activity'
 import type { DayEntry, DayEntryStatus } from '@/app/lib/entries'
 
 const STATUS_OPTIONS: { value: DayEntryStatus; label: string; dot: string }[] = [
@@ -24,7 +25,7 @@ const STATUS_DOT: Record<string, string> = Object.fromEntries(
   STATUS_OPTIONS.filter(o => o.value).map(o => [o.value, o.dot])
 )
 
-type Props  = { entry: DayEntry; onClose: () => void; onSaved: () => void }
+type Props  = { entry: DayEntry; onClose: () => void; onSaved: () => void; activityCtx?: ActivityCtx }
 
 type FormState = {
   stories_content: string; stories_status: DayEntryStatus; stories_format: string
@@ -121,7 +122,7 @@ function TextInputField({ label, value, onChange, placeholder, type = 'text' }:
   )
 }
 
-export default function EditEntryModal({ entry, onClose, onSaved }: Props) {
+export default function EditEntryModal({ entry, onClose, onSaved, activityCtx }: Props) {
   const [form, setForm] = useState<FormState>({
     stories_content: entry.stories_content ?? '', stories_status: entry.stories_status ?? null, stories_format: entry.stories_format ?? '',
     feed_content:    entry.feed_content    ?? '', feed_status:    entry.feed_status    ?? null, feed_format:    entry.feed_format    ?? '',
@@ -150,6 +151,37 @@ export default function EditEntryModal({ entry, onClose, onSaved }: Props) {
         updated_at: new Date().toISOString(),
       }).eq('id', entry.id)
       if (err) throw err
+
+      // Registra atividade silenciosamente para cada campo alterado
+      if (activityCtx) {
+        const statusFields = [
+          { field: 'stories_status', old: entry.stories_status, newVal: storiesStatus },
+          { field: 'feed_status',    old: entry.feed_status,    newVal: feedStatus    },
+          { field: 'acoes_status',   old: entry.acoes_status,   newVal: acoesStatus   },
+        ]
+        const contentFields = [
+          { field: 'stories_content', old: entry.stories_content, newVal: form.stories_content || null },
+          { field: 'feed_content',    old: entry.feed_content,    newVal: form.feed_content    || null },
+          { field: 'acoes_content',   old: entry.acoes_content,   newVal: form.acoes_content   || null },
+          { field: 'legenda_copy',    old: entry.legenda_copy,    newVal: form.legenda_copy    || null },
+          { field: 'observacoes',     old: entry.observacoes,     newVal: form.observacoes     || null },
+        ]
+        for (const f of statusFields) {
+          if (f.old !== f.newVal) {
+            logActivity({ ctx: activityCtx, actionType: 'status_change', entryId: entry.id,
+              clientId: entry.client_id, entryDate: entry.entry_date, field: f.field,
+              oldValue: f.old ?? null, newValue: f.newVal ?? null })
+          }
+        }
+        for (const f of contentFields) {
+          if ((f.old ?? null) !== (f.newVal ?? null)) {
+            logActivity({ ctx: activityCtx, actionType: 'content_edit', entryId: entry.id,
+              clientId: entry.client_id, entryDate: entry.entry_date, field: f.field,
+              oldValue: f.old ?? null, newValue: f.newVal ?? null })
+          }
+        }
+      }
+
       onSaved()
     } catch (e: unknown) {
       const msg =
