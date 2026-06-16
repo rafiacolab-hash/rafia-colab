@@ -20,6 +20,10 @@ export default function LoginPage() {
     setError('')
 
     const supabase = createClient()
+    // Limpa qualquer sessão local corrompida/expirada antes de tentar logar.
+    // Isso evita que um token antigo no localStorage trave o login em navegadores
+    // onde o usuário já acessou o sistema antes. scope:'local' não faz chamada ao servidor.
+    await supabase.auth.signOut({ scope: 'local' })
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error || !data.session) {
