@@ -58,10 +58,10 @@ export async function GET() {
 
   if (eErr) return NextResponse.json({ error: eErr.message }, { status: 500 })
 
-  const toFix = (entries ?? []).filter((e: { stories_status: string; feed_status: string; acoes_status: string }) =>
-    e.stories_status === 'AGUARDANDO' ||
-    e.feed_status    === 'AGUARDANDO' ||
-    e.acoes_status   === 'AGUARDANDO'
+  const toFix = (entries ?? []).filter((e: { stories_status: string | null; feed_status: string | null; acoes_status: string | null }) =>
+    e.stories_status === 'AGUARDANDO' || e.stories_status === null ||
+    e.feed_status    === 'AGUARDANDO' || e.feed_status    === null ||
+    e.acoes_status   === 'AGUARDANDO' || e.acoes_status   === null
   )
 
   let fixed = 0
@@ -69,9 +69,9 @@ export async function GET() {
 
   for (const e of toFix as Array<{ id: string; entry_date: string; stories_status: string; feed_status: string; acoes_status: string }>) {
     const update: Record<string, string> = { updated_at: new Date().toISOString() }
-    if (e.stories_status === 'AGUARDANDO') update.stories_status = 'A_FAZER'
-    if (e.feed_status    === 'AGUARDANDO') update.feed_status    = 'A_FAZER'
-    if (e.acoes_status   === 'AGUARDANDO') update.acoes_status   = 'A_FAZER'
+    if (e.stories_status === 'AGUARDANDO' || e.stories_status === null) update.stories_status = 'A_FAZER'
+    if (e.feed_status    === 'AGUARDANDO' || e.feed_status    === null) update.feed_status    = 'A_FAZER'
+    if (e.acoes_status   === 'AGUARDANDO' || e.acoes_status   === null) update.acoes_status   = 'A_FAZER'
 
     const { error } = await supabase.from('day_entries').update(update).eq('id', e.id)
     if (error) errors.push(`${e.entry_date}: ${error.message}`)
