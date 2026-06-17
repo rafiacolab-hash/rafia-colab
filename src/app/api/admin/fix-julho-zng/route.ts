@@ -7,18 +7,10 @@ const SERVICE_ROLE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY!
 export async function GET() {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
-  // Busca ZNG
-  const { data: clients, error: cErr } = await admin.from('clients').select('id, name')
-  if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 })
-
-  const zng = clients?.find(c => c.name === 'ZNG')
-  if (!zng) return NextResponse.json({ error: 'ZNG não encontrada' }, { status: 404 })
-
-  // Busca entradas de julho com AGUARDANDO
+  // Busca todas as entradas de julho 2026 com status AGUARDANDO
   const { data: entries, error: eErr } = await admin
     .from('day_entries')
-    .select('id, entry_date, stories_status, feed_status, acoes_status')
-    .eq('client_id', zng.id)
+    .select('id, client_id, entry_date, stories_status, feed_status, acoes_status')
     .gte('entry_date', '2026-07-01')
     .lte('entry_date', '2026-07-31')
 
@@ -46,6 +38,7 @@ export async function GET() {
 
   return NextResponse.json({
     total_julho: entries?.length,
+    aguardando_encontrados: toFix.length,
     corrigidas: fixed,
     errors,
   })

@@ -82,7 +82,15 @@ export default function GenerateMonthModal({ clientId, clientName, monthRef, onC
       const date = new Date(year, month - 1, day)
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       if (!existingDates.has(dateStr)) {
-        entries.push({ month_list_id: monthListId, client_id: clientId, entry_date: dateStr, dia_semana: getDayName(date) })
+        entries.push({
+          month_list_id: monthListId,
+          client_id: clientId,
+          entry_date: dateStr,
+          dia_semana: getDayName(date),
+          stories_status: 'A_FAZER',
+          feed_status: 'A_FAZER',
+          acoes_status: 'A_FAZER',
+        })
       }
     }
 
