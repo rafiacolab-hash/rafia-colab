@@ -5,6 +5,19 @@ import { cookies } from 'next/headers'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const COOKIE_NAME = 'sb-sbqefuorlrcaxqciylkr-auth-token'
 
+// Decodifica o claim "role" de uma service_role key (é um JWT igual ao anon key,
+// só muda o payload). Serve pra confirmar em runtime que a env var configurada
+// no Vercel é mesmo a service_role e não, por exemplo, a anon key colada errada.
+function decodeKeyRole(key: string | undefined): string | null {
+  if (!key) return null
+  try {
+    const payload = JSON.parse(Buffer.from(key.split('.')[1], 'base64').toString('utf-8'))
+    return payload?.role ?? null
+  } catch {
+    return null
+  }
+}
+
 function parseAccessTokenFromRaw(raw: string): string | null {
   try {
     let value = raw
@@ -97,14 +110,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Nome do cliente é obrigatório.' }, { status: 400 })
     }
 
+    const keyRole = decodeKeyRole(SERVICE_ROLE_KEY)
+    if (keyRole !== 'service_role') {
+      return NextResponse.json(
+        {
+          error: `SUPABASE_SERVICE_ROLE_KEY mal configurada no Vercel (a chave detectada tem role "${keyRole ?? 'não decodificável'}", deveria ser "service_role"). Confira em Vercel → Settings → Environment Variables se o valor colado é a "service_role secret" do Supabase (Project Settings → API), não a "anon public" key.`,
+        },
+        { status: 500 }
+      )
+    }
+
     const admin = createAdminClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, SERVICE_ROLE_KEY)
 
     // Evita duplicar cliente com o mesmo nome
-    const { data: existing } = await admin
+    const { data: existing, error: existingErr } = await admin
       .from('clients')
       .select('id')
       .ilike('name', name.trim())
       .maybeSingle()
+
+    if (existingErr) throw new Error(`Falha ao verificar duplicidade: ${existingErr.message}`)
 
     if (existing) {
       return NextResponse.json({ error: 'Já existe um cliente com esse nome.' }, { status: 409 })
@@ -116,7 +141,7 @@ export async function POST(req: NextRequest) {
       .select('id, name, color')
       .single()
 
-    if (error) throw new Error(error.message)
+    if (error) throw new Error(`Falha ao inserir cliente (chave role="${keyRole}"): ${error.message}`)
 
     return NextResponse.json({ success: true, client: newClient })
   } catch (e: unknown) {
