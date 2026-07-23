@@ -14,6 +14,8 @@ export default function Sidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [userName, setUserName] = useState<string>('')
   const [userRole, setUserRole] = useState<string>('...')
+  const [rawRole, setRawRole] = useState<string>('')
+  const [linkedClientId, setLinkedClientId] = useState<string | null>(null)
 
   const router = useRouter()
   const pathname = usePathname()
@@ -40,6 +42,8 @@ export default function Sidebar() {
             setUserName(profile.name)
             const roleMap: Record<string, string> = { admin: 'Admin', assistant: 'Assistente', client: 'Cliente' }
             setUserRole(roleMap[profile.role] || profile.role)
+            setRawRole(profile.role)
+            setLinkedClientId(profile.client_id ?? null)
             loadClients(profile.role, profile.client_id ?? null)
           }
         })
@@ -71,6 +75,13 @@ export default function Sidebar() {
   }
   if (typeof window !== 'undefined') {
     (window as Window & { __sidebarRefreshMonths?: (id: string) => void }).__sidebarRefreshMonths = refreshMonths
+  }
+
+  const refreshClients = async () => {
+    await loadClients(rawRole, linkedClientId)
+  }
+  if (typeof window !== 'undefined') {
+    (window as Window & { __sidebarRefreshClients?: () => void }).__sidebarRefreshClients = refreshClients
   }
 
   const handleLogout = async () => {
@@ -117,6 +128,14 @@ export default function Sidebar() {
                   : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
               }`}>
               Usuários
+            </button>
+            <button onClick={() => router.push('/admin/clients')}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-1 transition-colors ${
+                pathname.startsWith('/admin/clients')
+                  ? 'bg-theme-surface text-theme-primary'
+                  : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-surface'
+              }`}>
+              Clientes
             </button>
             <button onClick={() => router.push('/admin/import')}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm mb-1 transition-colors ${
