@@ -3,35 +3,62 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 const SERVICE_ROLE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const COOKIE_NAME = 'sb-sbqefuorlrcaxqciylkr-auth-token'
 
-// Lê o JWT do cookie e usa o token do próprio usuário para checar o perfil
-async function getCallerRole(): Promise<string | null> {
+function parseAccessTokenFromRaw(raw: string): string | null {
   try {
-    const cookieStore = await cookies()
-    const cookieName  = 'sb-sbqefuorlrcaxqciylkr-auth-token'
-    const rawValue =
-      cookieStore.get(cookieName)?.value ??
-      cookieStore.get(`${cookieName}.0`)?.value
-    if (!rawValue) return null
-
-    let tokenStr = decodeURIComponent(rawValue)
-    if (tokenStr.startsWith('base64-')) {
-      tokenStr = Buffer.from(tokenStr.slice(7), 'base64').toString('utf-8')
+    let value = raw
+    if (value.startsWith('base64-')) {
+      value = Buffer.from(value.slice(7), 'base64').toString('utf-8')
     }
+    const parsed = JSON.parse(value)
+    return parsed?.access_token ?? parsed?.[0]?.access_token ?? null
+  } catch {
+    return null
+  }
+}
 
-    const parsed = JSON.parse(tokenStr)
-    const accessToken: string | undefined =
-      parsed?.access_token ?? parsed?.[0]?.access_token
-    if (!accessToken) return null
+// Lê o token de acesso do cookie do Supabase — reconstrói os chunks
+// (sb-xxx-auth-token.0, .1, .2, ...) quando o JWT é grande e o SSR
+// helper divide o cookie em várias partes.
+async function getAccessTokenFromServerCookies(): Promise<string | null> {
+  const cookieStore = await cookies()
 
-    // Decodifica o JWT para pegar o id do usuário (sub) — não dá pra confiar
-    // em RLS + .single() sem filtro: se a policy deixa admin ver todas as
-    // linhas de users_profile, a query sem .eq() retorna >1 linha e .single()
-    // lança erro, fazendo até um admin de verdade cair no 403.
-    const jwtPayloadStr = Buffer.from(accessToken.split('.')[1], 'base64').toString('utf-8')
-    const jwtPayload = JSON.parse(jwtPayloadStr)
-    const userId: string | undefined = jwtPayload?.sub
-    if (!userId) return null
+  const direct = cookieStore.get(COOKIE_NAME)?.value
+  if (direct) {
+    const token = parseAccessTokenFromRaw(decodeURIComponent(direct))
+    if (token) return token
+  }
+
+  const chunks: string[] = []
+  for (let i = 0; ; i++) {
+    const chunk = cookieStore.get(`${COOKIE_NAME}.${i}`)?.value
+    if (chunk === undefined) break
+    chunks.push(decodeURIComponent(chunk))
+  }
+  if (chunks.length > 0) {
+    return parseAccessTokenFromRaw(chunks.join(''))
+  }
+
+  return null
+}
+
+// Lê o JWT do cookie e usa o token do próprio usuário para checar o perfil.
+// Retorna também um "reason" quando falha, pra dar pra diagnosticar em produção
+// sem precisar acessar os logs do Vercel.
+async function getCallerInfo(): Promise<{ role: string | null; reason?: string }> {
+  try {
+    const accessToken = await getAccessTokenFromServerCookies()
+    if (!accessToken) return { role: null, reason: 'cookie de sessão não encontrado' }
+
+    let userId: string | undefined
+    try {
+      const jwtPayload = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64').toString('utf-8'))
+      userId = jwtPayload?.sub
+    } catch {
+      return { role: null, reason: 'não foi possível decodificar o token de sessão' }
+    }
+    if (!userId) return { role: null, reason: 'token de sessão sem id de usuário' }
 
     const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -45,22 +72,23 @@ async function getCallerRole(): Promise<string | null> {
       .select('role')
       .eq('id', userId)
       .maybeSingle()
-    if (error) {
-      console.error('[invite-user] getCallerRole error:', error.message)
-      return null
-    }
-    return data?.role ?? null
+
+    if (error) return { role: null, reason: `erro ao buscar perfil: ${error.message}` }
+    if (!data) return { role: null, reason: 'perfil não encontrado em users_profile' }
+    return { role: data.role ?? null }
   } catch (e) {
-    console.error('[invite-user] getCallerRole exception:', e)
-    return null
+    return { role: null, reason: e instanceof Error ? e.message : 'erro desconhecido' }
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const callerRole = await getCallerRole()
+    const { role: callerRole, reason } = await getCallerInfo()
     if (callerRole !== 'admin') {
-      return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 })
+      return NextResponse.json(
+        { error: `Acesso negado (${reason ?? `role atual: ${callerRole ?? 'nenhum'}`}).` },
+        { status: 403 }
+      )
     }
 
     const { name, email, role, client_id } = await req.json()
