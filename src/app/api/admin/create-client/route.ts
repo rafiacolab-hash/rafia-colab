@@ -24,6 +24,15 @@ async function getCallerRole(): Promise<string | null> {
       parsed?.access_token ?? parsed?.[0]?.access_token
     if (!accessToken) return null
 
+    // Decodifica o JWT para pegar o id do usuário (sub) — não dá pra confiar
+    // em RLS + .single() sem filtro: se a policy deixa admin ver todas as
+    // linhas de users_profile, a query sem .eq() retorna >1 linha e .single()
+    // lança erro, fazendo até um admin de verdade cair no 403.
+    const jwtPayloadStr = Buffer.from(accessToken.split('.')[1], 'base64').toString('utf-8')
+    const jwtPayload = JSON.parse(jwtPayloadStr)
+    const userId: string | undefined = jwtPayload?.sub
+    if (!userId) return null
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
@@ -31,13 +40,20 @@ async function getCallerRole(): Promise<string | null> {
       global: { headers: { Authorization: `Bearer ${accessToken}` } },
       auth: { persistSession: false, autoRefreshToken: false },
     })
-    const { data } = await client
+    const { data, error } = await client
       .from('users_profile')
       .select('role')
-      .limit(1)
-      .single()
+      .eq('id', userId)
+      .maybeSingle()
+    if (error) {
+      console.error('[create-client] getCallerRole error:', error.message)
+      return null
+    }
     return data?.role ?? null
-  } catch { return null }
+  } catch (e) {
+    console.error('[create-client] getCallerRole exception:', e)
+    return null
+  }
 }
 
 export async function POST(req: NextRequest) {
