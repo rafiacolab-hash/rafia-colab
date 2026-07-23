@@ -5,6 +5,12 @@ import { cookies } from 'next/headers'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const COOKIE_NAME = 'sb-sbqefuorlrcaxqciylkr-auth-token'
 
+// A tabela `clients` tem uma coluna `space_id` (uuid, NOT NULL) não documentada
+// no CLAUDE.md — resquício de um conceito de multi-tenant que nunca chegou a ser
+// usado de fato. Todos os clientes existentes hoje compartilham esse mesmo valor
+// fixo, então usamos o mesmo aqui até o app realmente precisar de múltiplos spaces.
+const DEFAULT_SPACE_ID = '00000000-0000-0000-0000-000000000001'
+
 // Decodifica o claim "role" de uma service_role key (é um JWT igual ao anon key,
 // só muda o payload). Serve pra confirmar em runtime que a env var configurada
 // no Vercel é mesmo a service_role e não, por exemplo, a anon key colada errada.
@@ -137,7 +143,7 @@ export async function POST(req: NextRequest) {
 
     const { data: newClient, error } = await admin
       .from('clients')
-      .insert({ name: name.trim(), color: color || '#10b981' })
+      .insert({ name: name.trim(), color: color || '#10b981', space_id: DEFAULT_SPACE_ID })
       .select('id, name, color')
       .single()
 
