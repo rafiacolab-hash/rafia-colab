@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient, createDataClient, getUserFromCookie } from '@/app/lib/supabase'
-import { LogOut, ChevronDown, ChevronRight, Sun, Moon, BookOpen } from 'lucide-react'
+import { LogOut, ChevronDown, ChevronRight, Sun, Moon, BookOpen, BarChart2 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 
 type Client = { id: string; name: string; color: string }
@@ -185,6 +185,18 @@ export default function Sidebar() {
                   }`}>
                   <BookOpen size={11} className="flex-shrink-0" />
                   Perfil da Marca
+                </button>
+
+                {/* Link: Métricas do Instagram */}
+                <button
+                  onClick={() => router.push(`/${client.id}/metricas`)}
+                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
+                    pathname === `/${client.id}/metricas`
+                      ? 'bg-theme-surface text-emerald-600 dark:text-emerald-400'
+                      : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
+                  }`}>
+                  <BarChart2 size={11} className="flex-shrink-0" />
+                  Métricas
                 </button>
 
                 {/* Meses */}
