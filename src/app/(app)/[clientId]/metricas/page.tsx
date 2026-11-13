@@ -1,0 +1,529 @@
+'use client'
+
+/* eslint-disable @next/next/no-img-element */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw, ExternalLink, Loader2 } from 'lucide-react'
+import { createDataClient } from '@/app/lib/supabase'
+import MetricChart from '@/components/metrics/MetricChart'
+import {
+  PRESETS, type Preset, type Range, daysIn, fmt, fmtDayLong, fmtDayShort, fmtPct, friendlyError, fromKey,
+  igApi, isTokenError, pool, rangeForPreset, timeSeries, toKey, totalValue, ts,
+} from '@/app/lib/instagram'
+
+/* ─── Tipos ─────────────────────────────────────────────────────────────── */
+type Connection = { connected: boolean; username: string | null; expiresAt: string | null; canManage: boolean }
+type Profile = {
+  username?: string; followers_count?: number; follows_count?: number; media_count?: number
+  profile_picture_url?: string; biography?: string
+}
+type Media = {
+  id: string; caption?: string; media_type: string; media_url?: string; thumbnail_url?: string
+  permalink: string; timestamp?: string; like_count?: number; comments_count?: number
+}
+type PostRow = Media & { views: number | null; inter: number; rate: number | null }
+type Block<T> = { status: 'loading' | 'ok' | 'error'; data?: T; error?: string; warn?: string }
+
+const IG_PINK = '#d62976'
+const IG_PURPLE = '#962fbf'
+const IG_ORANGE = '#f77737'
+const IG_GRADIENT = 'linear-gradient(135deg,#fa7e1e 0%,#d62976 50%,#962fbf 100%)'
+
+const LOADING = { status: 'loading' } as const
+
+type Props = { params: { clientId: string } }
+
+export default function MetricasPage({ params }: Props) {
+  const { clientId } = params
+
+  const [clientName, setClientName] = useState('')
+  const [conn, setConn] = useState<Connection | null>(null)
+  const [connError, setConnError] = useState('')
+  const [tokenExpired, setTokenExpired] = useState(false)
+
+  const [preset, setPreset] = useState<Preset>('prevMonth')
+  const [range, setRange] = useState<Range>(() => rangeForPreset('prevMonth'))
+  const [tick, setTick] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  const [profile, setProfile] = useState<Block<Profile>>(LOADING)
+  const [posts, setPosts] = useState<Block<PostRow[]>>(LOADING)
+  const [reach, setReach] = useState<Block<(number | null)[]>>(LOADING)
+  const [reachTotal, setReachTotal] = useState<Block<{ value: number | null; note: string }>>(LOADING)
+  const [viewsEng, setViewsEng] = useState<Block<{ views: (number | null)[]; rate: (number | null)[]; totalViews: number; totalInter: number }>>(LOADING)
+  const [gains, setGains] = useState<Block<(number | null)[]>>(LOADING)
+  const [folMode, setFolMode] = useState<'gain' | 'total'>('gain')
+
+  const seq = useRef(0)
+  const days = useMemo(() => daysIn(range), [range])
+  const labels = useMemo(() => days.map(d => fmtDayShort(d.date)), [days])
+
+  const noteError = useCallback((e: unknown) => {
+    if (isTokenError(e)) setTokenExpired(true)
+    return friendlyError(e)
+  }, [])
+
+  /* ─── Nome do cliente + status da conexão ─────────────────────────────── */
+  const loadConnection = useCallback(async () => {
+    setConnError('')
+    try {
+      const res = await fetch(`/api/instagram/${clientId}/connection`, { credentials: 'same-origin' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setConn(body as Connection)
+    } catch (e) {
+      setConnError(e instanceof Error ? e.message : 'Erro ao verificar conexão.')
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    createDataClient().from('clients').select('name').eq('id', clientId).single()
+      .then(({ data }: { data: { name: string } | null }) => { if (data) setClientName(data.name) })
+    loadConnection()
+  }, [clientId, loadConnection])
+
+  /* ─── Perfil + posts (não dependem do período) ────────────────────────── */
+  useEffect(() => {
+    if (!conn?.connected) return
+    let alive = true
+    setTokenExpired(false)
+    setProfile(LOADING); setPosts(LOADING)
+
+    igApi<Profile>(clientId, 'me', { fields: 'username,followers_count,follows_count,media_count,profile_picture_url,biography' })
+      .then(p => { if (alive) setProfile({ status: 'ok', data: p }) })
+      .catch(e => { if (alive) setProfile({ status: 'error', error: noteError(e) }) })
+
+    ;(async () => {
+      try {
+        const res = await igApi<{ data?: Media[] }>(clientId, 'me/media', {
+          fields: 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count', limit: 12,
+        })
+        const media = res.data ?? []
+        const ins = await pool(media, 6, m =>
+          igApi<{ data?: { name: string; values?: { value: number }[] }[] }>(clientId, `${m.id}/insights`, { metric: 'views,total_interactions' }))
+        let missing = 0
+        const rows: PostRow[] = media.map((m, i) => {
+          let views: number | null = null
+          let inter: number | null = null
+          const r = ins[i]
+          if (r.ok) for (const d of r.value.data ?? []) {
+            const v = d.values?.[0] ? Number(d.values[0].value) : null
+            if (d.name === 'views') views = v
+            if (d.name === 'total_interactions') inter = v
+          }
+          if (views == null) missing++
+          const interFinal = inter ?? (m.like_count ?? 0) + (m.comments_count ?? 0)
+          return { ...m, views, inter: interFinal, rate: views ? (interFinal / views) * 100 : null }
+        })
+        if (alive) setPosts({
+          status: 'ok', data: rows,
+          warn: missing ? `${missing} post(s) sem insights de views — interações calculadas por curtidas + comentários.` : undefined,
+        })
+      } catch (e) {
+        if (alive) setPosts({ status: 'error', error: noteError(e) })
+      }
+    })()
+
+    return () => { alive = false }
+  }, [clientId, conn?.connected, tick, noteError])
+
+  /* ─── Métricas do período ─────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!conn?.connected) return
+    const my = ++seq.current
+    const live = () => my === seq.current
+    setBusy(true)
+    setReach(LOADING); setReachTotal(LOADING); setViewsEng(LOADING); setGains(LOADING)
+
+    const loadReach = async () => {
+      const ser = await timeSeries(clientId, 'reach', range)
+      if (!live()) return
+      const vals = days.map(d => ser.map.get(d.key) ?? null)
+      const has = vals.some(v => v != null)
+      setReach(has
+        ? { status: 'ok', data: vals, warn: ser.failed ? 'Parte do período não retornou dados.' : undefined }
+        : { status: 'error', error: ser.failed ? noteError(ser.lastError) : 'Sem dados de alcance para o período.' })
+
+      // ≤30 dias → total_value (contas únicas); >30 → soma da série
+      let value: number | null = null
+      let note = ''
+      if (range.until - range.since <= 30 * 86400) {
+        try { value = (await totalValue(clientId, 'reach', range)).reach ?? null; note = 'contas únicas' }
+        catch (e) { note = noteError(e) }
+      }
+      if (value == null && has) { value = vals.reduce<number>((a, b) => a + (b ?? 0), 0); note = 'soma dos dias' }
+      if (live()) setReachTotal({ status: 'ok', data: { value, note: value == null ? (note || 'sem dados') : note } })
+    }
+
+    const loadViews = async () => {
+      // views/total_interactions não têm time_series → total_value 1 dia por vez (máx. 6 simultâneas)
+      const res = await pool(days, 6, d => totalValue(clientId, 'views,total_interactions', d))
+      if (!live()) return
+      let failed = 0
+      let lastErr: unknown = null
+      const views: (number | null)[] = []
+      const inter: (number | null)[] = []
+      res.forEach(r => {
+        if (r.ok) { views.push(r.value.views ?? null); inter.push(r.value.total_interactions ?? null) }
+        else { failed++; lastErr = r.error; views.push(null); inter.push(null) }
+      })
+      if (!views.some(v => v != null)) {
+        setViewsEng({ status: 'error', error: failed ? noteError(lastErr) : 'Sem dados de views para o período.' })
+        return
+      }
+      const rate = views.map((v, i) => (v == null || inter[i] == null ? null : v > 0 ? ((inter[i] as number) / v) * 100 : 0))
+      setViewsEng({
+        status: 'ok',
+        data: {
+          views, rate,
+          totalViews: views.reduce<number>((a, b) => a + (b ?? 0), 0),
+          totalInter: inter.reduce<number>((a, b) => a + (b ?? 0), 0),
+        },
+        warn: failed ? `${failed} dia(s) sem resposta da API.` : undefined,
+      })
+    }
+
+    const loadFollowers = async () => {
+      const ser = await timeSeries(clientId, 'follower_count', range)
+      if (!live()) return
+      const vals = days.map(d => ser.map.get(d.key) ?? null)
+      setGains(vals.some(v => v != null)
+        ? { status: 'ok', data: vals, warn: ser.failed ? 'A API só cobre os últimos 30 dias de seguidores.' : undefined }
+        : { status: 'error', error: 'Sem dados de novos seguidores. A métrica exige 100+ seguidores e só cobre os últimos 30 dias.' })
+    }
+
+    Promise.allSettled([loadReach(), loadViews(), loadFollowers()]).then(() => { if (live()) setBusy(false) })
+  }, [clientId, conn?.connected, range, days, tick, noteError])
+
+  // Total estimado de seguidores: retrocede a partir do total atual subtraindo os ganhos diários.
+  const followersTotal = useMemo(() => {
+    const current = profile.data?.followers_count
+    const g = gains.data
+    if (current == null || !g) return null
+    const out: number[] = new Array(g.length)
+    out[g.length - 1] = current
+    for (let i = g.length - 2; i >= 0; i--) out[i] = out[i + 1] - (g[i + 1] ?? 0)
+    return out
+  }, [profile.data, gains.data])
+
+  /* ─── Filtros ─────────────────────────────────────────────────────────── */
+  const choosePreset = (p: Preset) => { setPreset(p); setRange(rangeForPreset(p)) }
+  const onDate = (which: 'from' | 'to', value: string) => {
+    if (!value) return
+    const fromKeyStr = which === 'from' ? value : toKey(new Date(range.since * 1000))
+    const toKeyStr = which === 'to' ? value : toKey(new Date((range.until - 1) * 1000))
+    let a = fromKey(fromKeyStr)
+    let b = fromKey(toKeyStr)
+    if (a > b) [a, b] = [b, a]
+    const end = new Date(b); end.setDate(end.getDate() + 1)
+    setPreset('custom')
+    setRange({ since: ts(a), until: Math.min(ts(end), ts(new Date())) })
+  }
+  const periodLabel = preset === 'custom'
+    ? `${fmtDayShort(new Date(range.since * 1000))} – ${fmtDayShort(new Date((range.until - 1) * 1000))}`
+    : PRESETS.find(p => p.id === preset)?.short ?? ''
+  const refresh = () => setTick(t => t + 1)
+
+  /* ─── Render ──────────────────────────────────────────────────────────── */
+  return (
+    <div className="flex flex-col h-full">
+      {/* Topbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-8 py-5 border-b border-theme-border bg-theme-bg">
+        <div>
+          <h1 className="text-lg font-semibold text-theme-primary">Métricas do Instagram</h1>
+          <p className="text-xs text-theme-muted mt-0.5">{clientName}{conn?.username ? ` · @${conn.username}` : ''}</p>
+        </div>
+        {conn?.connected && (
+          <div className="flex items-center gap-2">
+            {busy && <span className="flex items-center gap-1.5 text-xs text-theme-muted"><Loader2 size={13} className="animate-spin" />atualizando…</span>}
+            <button onClick={refresh} title="Atualizar"
+              className="p-2 rounded-lg text-theme-secondary hover:text-theme-primary hover:bg-theme-surface transition-colors">
+              <RefreshCw size={16} />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-auto px-8 py-6 bg-theme-bg">
+        {connError && <Banner tone="error">{connError}</Banner>}
+        {tokenExpired && (
+          <Banner tone="error">
+            Token expirado ou inválido — gere um novo token na Meta e reconecte este cliente{conn?.canManage ? ' (abaixo)' : ' (peça a um administrador)'}.
+          </Banner>
+        )}
+
+        {!conn && !connError && <Spinner />}
+
+        {conn && !conn.connected && (
+          <ConnectPanel clientId={clientId} canManage={conn.canManage} onDone={loadConnection} />
+        )}
+
+        {conn?.connected && (
+          <>
+            {/* Perfil */}
+            <div className="flex flex-wrap items-center gap-4 mb-6">
+              <div className="w-16 h-16 rounded-full p-[3px] flex-shrink-0" style={{ background: IG_GRADIENT }}>
+                {profile.data?.profile_picture_url
+                  ? <img src={profile.data.profile_picture_url} alt="" referrerPolicy="no-referrer" className="w-full h-full rounded-full object-cover border-[3px] border-theme-bg" />
+                  : <div className="w-full h-full rounded-full bg-theme-surface border-[3px] border-theme-bg" />}
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <p className="text-base font-semibold text-theme-primary">
+                  {profile.status === 'loading' ? <Skel w="w-32" /> : `@${profile.data?.username ?? conn.username ?? ''}`}
+                </p>
+                <p className="text-sm text-theme-secondary whitespace-pre-line line-clamp-2 max-w-2xl">
+                  {profile.status === 'error' ? profile.error : profile.data?.biography}
+                </p>
+              </div>
+            </div>
+
+            {/* Filtros */}
+            <div className="flex flex-wrap items-center gap-3 mb-5">
+              <div className="flex flex-wrap items-center bg-theme-surface rounded-lg p-1 gap-0.5">
+                {PRESETS.map(p => (
+                  <button key={p.id} onClick={() => choosePreset(p.id)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                      preset === p.id ? 'bg-theme-card text-theme-primary shadow-sm' : 'text-theme-muted hover:text-theme-secondary'
+                    }`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-theme-secondary">
+                <span>De</span>
+                <input type="date" value={toKey(new Date(range.since * 1000))} max={toKey(new Date())}
+                  onChange={e => onDate('from', e.target.value)}
+                  className={`px-2 py-1.5 rounded-lg bg-theme-surface border text-theme-primary ${preset === 'custom' ? 'border-pink-500' : 'border-theme-border'}`} />
+                <span>Até</span>
+                <input type="date" value={toKey(new Date((range.until - 1) * 1000))} max={toKey(new Date())}
+                  onChange={e => onDate('to', e.target.value)}
+                  className={`px-2 py-1.5 rounded-lg bg-theme-surface border text-theme-primary ${preset === 'custom' ? 'border-pink-500' : 'border-theme-border'}`} />
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+              <Kpi label="Seguidores" loading={profile.status === 'loading'} value={fmt(profile.data?.followers_count)}
+                note={profile.data?.follows_count != null ? `seguindo ${fmt(profile.data?.follows_count)}` : ''} />
+              <Kpi label="Total de posts" loading={profile.status === 'loading'} value={fmt(profile.data?.media_count)} />
+              <Kpi label={`Alcance (${periodLabel})`} loading={reachTotal.status === 'loading'}
+                value={fmt(reachTotal.data?.value)} note={reachTotal.data?.note} />
+              <Kpi label={`Views (${periodLabel})`} loading={viewsEng.status === 'loading'}
+                value={viewsEng.data ? fmt(viewsEng.data.totalViews) : '—'}
+                note={viewsEng.status === 'error' ? viewsEng.error : viewsEng.data ? 'soma dos dias' : ''} />
+            </div>
+
+            {/* Gráficos */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-8">
+              <Panel title="Contas alcançadas" sub="Alcance diário" block={reach}>
+                {reach.data && <MetricChart labels={labels} values={reach.data} kind="area" color={IG_PINK} seriesLabel="Alcance" format={fmt} />}
+              </Panel>
+              <Panel title="Visualizações" sub="Views por dia" block={viewsEng}>
+                {viewsEng.data && <MetricChart labels={labels} values={viewsEng.data.views} kind="area" color={IG_PURPLE} seriesLabel="Views" format={fmt} />}
+              </Panel>
+              <Panel title="Taxa de engajamento" sub="Interações ÷ views, por dia" block={viewsEng}
+                headline={viewsEng.data && viewsEng.data.totalViews > 0 ? fmtPct((viewsEng.data.totalInter / viewsEng.data.totalViews) * 100) : undefined}>
+                {viewsEng.data && <MetricChart labels={labels} values={viewsEng.data.rate} kind="line" color={IG_ORANGE} seriesLabel="Engajamento" format={fmtPct} />}
+              </Panel>
+              <Panel title="Crescimento de seguidores"
+                sub={folMode === 'gain' ? 'Novos seguidores por dia' : 'Total estimado (retrocedendo do total atual)'}
+                block={gains}
+                action={
+                  <div className="flex bg-theme-surface rounded-md p-0.5 gap-0.5">
+                    {(['gain', 'total'] as const).map(m => (
+                      <button key={m} onClick={() => setFolMode(m)}
+                        className={`px-2 py-1 rounded text-[11px] whitespace-nowrap ${folMode === m ? 'bg-theme-card text-theme-primary shadow-sm' : 'text-theme-muted'}`}>
+                        {m === 'gain' ? 'Novos/dia' : 'Total estimado'}
+                      </button>
+                    ))}
+                  </div>
+                }>
+                {gains.data && (folMode === 'total' && followersTotal
+                  ? <MetricChart labels={labels} values={followersTotal} kind="line" color={IG_PURPLE} seriesLabel="Total estimado" format={fmt} zeroBased={false} />
+                  : <MetricChart labels={labels} values={gains.data} kind="bar" color={IG_PINK} seriesLabel="Novos seguidores" format={fmt} />)}
+              </Panel>
+            </div>
+
+            {/* Posts */}
+            <h2 className="text-base font-semibold text-theme-primary mb-3">Últimos posts</h2>
+            {posts.warn && <Banner tone="warn">{posts.warn}</Banner>}
+            {posts.status === 'error' && <Banner tone="warn">Não foi possível carregar os posts. {posts.error}</Banner>}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+              {posts.status === 'loading' && Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-theme-border bg-theme-card overflow-hidden">
+                  <div className="aspect-square bg-theme-surface animate-pulse" />
+                  <div className="p-3 space-y-2"><Skel w="w-1/3" /><Skel w="w-full" /></div>
+                </div>
+              ))}
+              {posts.data?.map(p => <PostCard key={p.id} post={p} />)}
+            </div>
+
+            {conn.canManage && (
+              <div className="mt-10 pt-5 border-t border-theme-border">
+                <ConnectPanel clientId={clientId} canManage connectedAs={conn.username} expiresAt={conn.expiresAt} onDone={loadConnection} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Componentes auxiliares ────────────────────────────────────────────── */
+function Spinner() {
+  return (
+    <div className="flex items-center justify-center h-32">
+      <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
+
+function Skel({ w }: { w: string }) {
+  return <span className={`inline-block h-3 ${w} rounded bg-theme-surface animate-pulse align-middle`} />
+}
+
+function Banner({ tone, children }: { tone: 'error' | 'warn'; children: React.ReactNode }) {
+  const cls = tone === 'error'
+    ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20'
+    : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+  return <div className={`mb-4 px-4 py-2.5 rounded-lg border text-sm ${cls}`}>{children}</div>
+}
+
+function Kpi({ label, value, note, loading }: { label: string; value: string; note?: string; loading?: boolean }) {
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-theme-border bg-theme-card px-4 py-3.5">
+      <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: IG_GRADIENT }} />
+      <p className="text-xs text-theme-secondary">{label}</p>
+      <p className="text-2xl font-bold text-theme-primary tabular-nums mt-1">{loading ? <Skel w="w-20" /> : value}</p>
+      <p className="text-[11px] text-theme-muted min-h-[16px] truncate">{loading ? '' : note}</p>
+    </div>
+  )
+}
+
+function Panel<T>({ title, sub, block, headline, action, children }: {
+  title: string; sub: string; block: Block<T>; headline?: string; action?: React.ReactNode; children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-theme-border bg-theme-card p-4 min-w-0">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <h3 className="text-sm font-semibold text-theme-primary">{title}</h3>
+          <p className="text-[11px] text-theme-muted">{sub}</p>
+        </div>
+        {headline && <span className="text-lg font-bold text-theme-primary tabular-nums" title="Média do período">{headline}</span>}
+        {action}
+      </div>
+      {block.status === 'loading' && <div className="h-[230px] rounded-lg bg-theme-surface animate-pulse" />}
+      {block.status === 'error' && <div className="h-[230px] flex items-center justify-center text-center text-xs text-theme-muted px-6">{block.error}</div>}
+      {block.status === 'ok' && children}
+      {block.warn && <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">{block.warn}</p>}
+    </div>
+  )
+}
+
+function PostCard({ post }: { post: PostRow }) {
+  const img = post.media_type === 'VIDEO' ? post.thumbnail_url : post.media_url ?? post.thumbnail_url
+  const tag = post.media_type === 'VIDEO' ? 'Reels' : post.media_type === 'CAROUSEL_ALBUM' ? 'Carrossel' : ''
+  return (
+    <a href={post.permalink} target="_blank" rel="noopener noreferrer"
+      className="group flex flex-col rounded-xl border border-theme-border bg-theme-card overflow-hidden hover:border-theme-border-strong transition-colors">
+      <div className="relative aspect-square bg-theme-surface">
+        {img && <img src={img} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover" />}
+        {tag && <span className="absolute top-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">{tag}</span>}
+        <ExternalLink size={14} className="absolute top-2 left-2 text-white opacity-0 group-hover:opacity-100 drop-shadow" />
+      </div>
+      <div className="px-3 pt-2.5 flex-1">
+        <p className="text-[11px] text-theme-muted">{post.timestamp ? fmtDayLong(new Date(post.timestamp)) : ''}</p>
+        <p className="text-xs text-theme-secondary line-clamp-2 min-h-[32px]">{post.caption || 'Sem legenda'}</p>
+      </div>
+      <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-1 px-3 py-2.5 mt-2 border-t border-theme-border text-[11px] text-theme-secondary tabular-nums">
+        <span title="Curtidas">❤️ {fmt(post.like_count)}</span>
+        <span title="Comentários">💬 {fmt(post.comments_count)}</span>
+        <span title="Views">👁️ {fmt(post.views)}</span>
+        <span title="Engajamento (interações ÷ views)"
+          className={`rounded px-1.5 py-0.5 font-bold ${post.rate == null ? 'bg-theme-surface text-theme-muted' : 'text-white'}`}
+          style={post.rate == null ? undefined : { background: IG_GRADIENT }}>
+          {fmtPct(post.rate)}
+        </span>
+      </div>
+    </a>
+  )
+}
+
+function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
+  clientId: string; canManage: boolean; connectedAs?: string | null; expiresAt?: string | null; onDone: () => void
+}) {
+  const [open, setOpen] = useState(!connectedAs)
+  const [token, setToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ tone: 'error' | 'ok'; text: string } | null>(null)
+
+  if (!canManage) {
+    return (
+      <div className="max-w-lg mx-auto mt-10 text-center">
+        <p className="text-theme-primary font-medium">Instagram ainda não conectado</p>
+        <p className="text-sm text-theme-secondary mt-1">Peça a um administrador para conectar a conta deste cliente.</p>
+      </div>
+    )
+  }
+
+  const save = async () => {
+    setSaving(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/instagram/${clientId}/connection`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setToken('')
+      setMsg({ tone: 'ok', text: `Conectado como @${body.username}.` })
+      onDone()
+    } catch (e) {
+      setMsg({ tone: 'error', text: e instanceof Error ? e.message : 'Erro ao salvar.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const disconnect = async () => {
+    if (!confirm('Desconectar o Instagram deste cliente? O token salvo será apagado.')) return
+    await fetch(`/api/instagram/${clientId}/connection`, { method: 'DELETE', credentials: 'same-origin' })
+    onDone()
+  }
+
+  return (
+    <div className={connectedAs ? '' : 'max-w-xl mx-auto mt-6 rounded-xl border border-theme-border bg-theme-card p-6'}>
+      {connectedAs ? (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-theme-muted">
+          <span>Conectado como <b className="text-theme-secondary">@{connectedAs}</b>
+            {expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ''}</span>
+          <button onClick={() => setOpen(o => !o)} className="underline hover:text-theme-primary">Trocar token</button>
+          <button onClick={disconnect} className="underline hover:text-red-500">Desconectar</button>
+        </div>
+      ) : (
+        <>
+          <h2 className="text-base font-semibold text-theme-primary">Conectar Instagram</h2>
+          <p className="text-sm text-theme-secondary mt-1 mb-4">
+            Cole o token de acesso gerado no painel do app Meta (<i>Configuração da API com login do Instagram → Gerar tokens de acesso</i>).
+            Ele fica guardado só no servidor.
+          </p>
+        </>
+      )}
+
+      {open && (
+        <div className={connectedAs ? 'mt-3 max-w-xl' : ''}>
+          <textarea value={token} onChange={e => setToken(e.target.value)} rows={3} placeholder="IGAA…"
+            className="w-full rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs font-mono text-theme-primary outline-none focus:border-theme-border-strong" />
+          <div className="flex items-center gap-3 mt-2">
+            <button onClick={save} disabled={!token.trim() || saving}
+              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-sm font-semibold rounded-lg transition-colors">
+              {saving ? 'Validando…' : 'Salvar token'}
+            </button>
+            {msg && <span className={`text-xs ${msg.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{msg.text}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
