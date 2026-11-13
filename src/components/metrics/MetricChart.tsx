@@ -53,7 +53,9 @@ export default function MetricChart({ labels, values, kind, color, seriesLabel, 
       hi = hi + pad
     }
     if (hi === lo) hi = lo + 1
-    const step = niceStep(hi - lo, 4)
+    // Contagens (seguidores, views…) são inteiras: evita eixo "0, 0, 1, 1"
+    const allInts = nums.every(n => Number.isInteger(n))
+    const step = allInts ? Math.max(1, niceStep(hi - lo, 4)) : niceStep(hi - lo, 4)
     const yMin = Math.floor(lo / step) * step
     const yMax = Math.ceil(hi / step) * step
     const ticks: number[] = []
