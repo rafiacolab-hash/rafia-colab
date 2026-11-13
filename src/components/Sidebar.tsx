@@ -5,7 +5,7 @@ import { createClient, createDataClient, getUserFromCookie } from '@/app/lib/sup
 import { LogOut, ChevronDown, ChevronRight, Sun, Moon, BookOpen, BarChart2 } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 
-type Client = { id: string; name: string; color: string }
+type Client = { id: string; name: string; color: string; active?: boolean }
 type MonthList = { id: string; month_ref: string; year: number }
 
 export default function Sidebar() {
@@ -16,6 +16,7 @@ export default function Sidebar() {
   const [userRole, setUserRole] = useState<string>('...')
   const [rawRole, setRawRole] = useState<string>('')
   const [linkedClientId, setLinkedClientId] = useState<string | null>(null)
+  const [showInactive, setShowInactive] = useState(false)
 
   const router = useRouter()
   const pathname = usePathname()
@@ -96,6 +97,64 @@ export default function Sidebar() {
     return `${months[parseInt(month) - 1]} ${year}`
   }
 
+  const activeClients = userRole === 'Cliente' ? clients : clients.filter(c => c.active !== false)
+  const inactiveClients: Client[] = userRole === 'Cliente' ? [] : clients.filter(c => c.active === false)
+  const inactiveOpen = showInactive || inactiveClients.some(c => pathname.startsWith(`/${c.id}/`))
+
+  const renderClient = (client: Client) => (
+        <div key={client.id}>
+          <button onClick={() => toggleClient(client.id)}
+            className="w-full text-left px-3 py-2 rounded-lg text-sm text-theme-secondary hover:text-theme-primary hover:bg-theme-surface transition-colors flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: client.color }} />
+            <span className="flex-1 truncate">{client.name}</span>
+            {expanded[client.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          {expanded[client.id] && (
+            <div className="ml-7 mt-1 space-y-1">
+              {/* Link: Perfil da Marca */}
+              <button
+                onClick={() => router.push(`/${client.id}/perfil`)}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
+                  pathname === `/${client.id}/perfil`
+                    ? 'bg-theme-surface text-emerald-600 dark:text-emerald-400'
+                    : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
+                }`}>
+                <BookOpen size={11} className="flex-shrink-0" />
+                Perfil da Marca
+              </button>
+
+              {/* Link: Métricas do Instagram */}
+              <button
+                onClick={() => router.push(`/${client.id}/metricas`)}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
+                  pathname === `/${client.id}/metricas`
+                    ? 'bg-theme-surface text-emerald-600 dark:text-emerald-400'
+                    : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
+                }`}>
+                <BarChart2 size={11} className="flex-shrink-0" />
+                Métricas
+              </button>
+
+              {/* Meses */}
+              {(monthsByClient[client.id] || []).map(month => (
+                <button key={month.id}
+                  onClick={() => router.push(`/${client.id}/${month.month_ref}`)}
+                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                    pathname === `/${client.id}/${month.month_ref}`
+                      ? 'bg-theme-surface text-theme-primary'
+                      : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
+                  }`}>
+                  {formatMonth(month.month_ref)}
+                </button>
+              ))}
+              {(monthsByClient[client.id] || []).length === 0 && (
+                <p className="text-theme-muted text-xs px-3 py-1 italic">Nenhum mês</p>
+              )}
+            </div>
+          )}
+        </div>
+  )
+
   return (
     <aside className="w-[235px] h-screen sticky top-0 bg-theme-card border-r border-theme-border flex flex-col">
       {/* Logo */}
@@ -160,64 +219,23 @@ export default function Sidebar() {
         )}
 
         <p className="text-theme-muted text-xs font-medium px-3 py-2 uppercase tracking-wider">
-          {userRole === 'Cliente' ? 'Meus dados' : 'Clientes'}
+          {userRole === 'Cliente' ? 'Meus dados' : 'Ativos'}
         </p>
 
         {clients.length === 0 && <p className="text-theme-muted text-xs px-3 py-2">Carregando...</p>}
 
-        {clients.map(client => (
-          <div key={client.id}>
-            <button onClick={() => toggleClient(client.id)}
-              className="w-full text-left px-3 py-2 rounded-lg text-sm text-theme-secondary hover:text-theme-primary hover:bg-theme-surface transition-colors flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: client.color }} />
-              <span className="flex-1 truncate">{client.name}</span>
-              {expanded[client.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        {activeClients.map(renderClient)}
+
+        {inactiveClients.length > 0 && userRole !== 'Cliente' && (
+          <div className="mt-3 pt-2 border-t border-theme-border">
+            <button onClick={() => setShowInactive(s => !s)}
+              className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium uppercase tracking-wider text-theme-muted hover:text-theme-primary hover:bg-theme-surface transition-colors flex items-center gap-2">
+              <span className="flex-1">Inativos ({inactiveClients.length})</span>
+              {inactiveOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
-            {expanded[client.id] && (
-              <div className="ml-7 mt-1 space-y-1">
-                {/* Link: Perfil da Marca */}
-                <button
-                  onClick={() => router.push(`/${client.id}/perfil`)}
-                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
-                    pathname === `/${client.id}/perfil`
-                      ? 'bg-theme-surface text-emerald-600 dark:text-emerald-400'
-                      : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
-                  }`}>
-                  <BookOpen size={11} className="flex-shrink-0" />
-                  Perfil da Marca
-                </button>
-
-                {/* Link: Métricas do Instagram */}
-                <button
-                  onClick={() => router.push(`/${client.id}/metricas`)}
-                  className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
-                    pathname === `/${client.id}/metricas`
-                      ? 'bg-theme-surface text-emerald-600 dark:text-emerald-400'
-                      : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
-                  }`}>
-                  <BarChart2 size={11} className="flex-shrink-0" />
-                  Métricas
-                </button>
-
-                {/* Meses */}
-                {(monthsByClient[client.id] || []).map(month => (
-                  <button key={month.id}
-                    onClick={() => router.push(`/${client.id}/${month.month_ref}`)}
-                    className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                      pathname === `/${client.id}/${month.month_ref}`
-                        ? 'bg-theme-surface text-theme-primary'
-                        : 'text-theme-muted hover:text-theme-primary hover:bg-theme-surface'
-                    }`}>
-                    {formatMonth(month.month_ref)}
-                  </button>
-                ))}
-                {(monthsByClient[client.id] || []).length === 0 && (
-                  <p className="text-theme-muted text-xs px-3 py-1 italic">Nenhum mês</p>
-                )}
-              </div>
-            )}
+            {inactiveOpen && <div className="opacity-70">{inactiveClients.map(renderClient)}</div>}
           </div>
-        ))}
+        )}
       </nav>
 
       {/* Footer */}

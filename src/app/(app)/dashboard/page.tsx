@@ -811,7 +811,7 @@ export default function DashboardPage() {
       setFullEntries([])
       try {
         const supabase = createDataClient()
-        const { data: clients } = await supabase.from('clients').select('id, name, color').order('name')
+        const { data: clients } = await supabase.from('clients').select('id, name, color').eq('active', true).order('name')
         if (!clients || cancelled) return
 
         const { data: monthLists } = await supabase.from('month_lists').select('id, client_id, month_ref').eq('month_ref', monthRef)

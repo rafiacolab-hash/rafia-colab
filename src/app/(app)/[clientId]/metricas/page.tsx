@@ -11,7 +11,8 @@ import {
 } from '@/app/lib/instagram'
 
 /* ─── Tipos ─────────────────────────────────────────────────────────────── */
-type Connection = { connected: boolean; username: string | null; expiresAt: string | null; canManage: boolean }
+type Connection = { connected: boolean; username: string | null; expiresAt: string | null; canManage: boolean; viaAgency?: boolean }
+type AgencyAccount = { id: string; username: string; name?: string; linkedTo: string | null }
 type Profile = {
   username?: string; followers_count?: number; follows_count?: number; media_count?: number
   profile_picture_url?: string; biography?: string
@@ -369,7 +370,7 @@ export default function MetricasPage({ params }: Props) {
 
             {conn.canManage && (
               <div className="mt-10 pt-5 border-t border-theme-border">
-                <ConnectPanel clientId={clientId} canManage connectedAs={conn.username} expiresAt={conn.expiresAt} onDone={loadConnection} />
+                <ConnectPanel clientId={clientId} canManage connectedAs={conn.username} expiresAt={conn.expiresAt} viaAgency={conn.viaAgency} onDone={loadConnection} />
               </div>
             )}
           </>
@@ -462,8 +463,8 @@ function PostCard({ post }: { post: PostRow }) {
   )
 }
 
-function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
-  clientId: string; canManage: boolean; connectedAs?: string | null; expiresAt?: string | null; onDone: () => void
+function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, onDone }: {
+  clientId: string; canManage: boolean; connectedAs?: string | null; expiresAt?: string | null; viaAgency?: boolean; onDone: () => void
 }) {
   const [showManual, setShowManual] = useState(false)
   const [showOptions, setShowOptions] = useState(!connectedAs)
@@ -472,6 +473,9 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
   const [msg, setMsg] = useState<{ tone: 'error' | 'ok'; text: string } | null>(null)
   const [invite, setInvite] = useState<{ url: string; expiresAt: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [agencyList, setAgencyList] = useState<AgencyAccount[] | null>(null)
+  const [agencyLoading, setAgencyLoading] = useState(false)
+  const [agencyPick, setAgencyPick] = useState('')
 
   if (!canManage) {
     return (
@@ -520,8 +524,72 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
     onDone()
   }
 
+  const loadAgency = async () => {
+    setAgencyLoading(true); setMsg(null)
+    try {
+      const res = await fetch('/api/instagram/agency-accounts', { credentials: 'same-origin' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setAgencyList(body.accounts as AgencyAccount[])
+      if (!body.accounts?.length) setMsg({ tone: 'error', text: 'Nenhuma conta do Instagram encontrada na BM da agência.' })
+    } catch (e) {
+      setMsg({ tone: 'error', text: e instanceof Error ? e.message : 'Erro ao carregar contas da BM.' })
+    } finally {
+      setAgencyLoading(false)
+    }
+  }
+
+  const linkAgency = async () => {
+    if (!agencyPick) return
+    setSaving(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/instagram/${clientId}/connection`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agencyIgUserId: agencyPick }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setMsg({ tone: 'ok', text: `Conectado como @${body.username}.` })
+      onDone()
+    } catch (e) {
+      setMsg({ tone: 'error', text: e instanceof Error ? e.message : 'Erro ao vincular.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const options = (
     <div className="space-y-4">
+      {/* Pela BM da agência — sem senha e sem ação do cliente */}
+      <div className="rounded-lg border border-theme-border bg-theme-surface p-3">
+        <p className="text-sm font-medium text-theme-primary">Pela BM da Ráfia Colab <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">RECOMENDADO</span></p>
+        <p className="text-xs text-theme-muted mt-0.5 mb-2">
+          Contas do Instagram que estão na sua BM ou que o cliente compartilhou com ela (parceiro). Não precisa de senha nem de ação do cliente.
+        </p>
+        {!agencyList ? (
+          <button onClick={loadAgency} disabled={agencyLoading}
+            className="px-3 py-1.5 rounded-lg border border-theme-border bg-theme-card text-theme-primary text-xs font-medium hover:border-theme-border-strong disabled:opacity-50">
+            {agencyLoading ? 'Carregando…' : 'Escolher conta da BM'}
+          </button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={agencyPick} onChange={e => setAgencyPick(e.target.value)}
+              className="min-w-[220px] flex-1 rounded-lg border border-theme-border bg-theme-card px-2 py-1.5 text-xs text-theme-primary">
+              <option value="">Selecione a conta…</option>
+              {agencyList.map(a => (
+                <option key={a.id} value={a.id}>
+                  @{a.username}{a.name ? ` (${a.name})` : ''}{a.linkedTo ? ` — já usada em ${a.linkedTo}` : ''}
+                </option>
+              ))}
+            </select>
+            <button onClick={linkAgency} disabled={!agencyPick || saving}
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-xs font-semibold rounded-lg">
+              {saving ? 'Vinculando…' : 'Vincular'}
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <a href={`/api/instagram/oauth/start?clientId=${clientId}`}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold hover:opacity-90 transition-opacity"
@@ -573,7 +641,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
       <div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-theme-muted">
           <span>Conectado como <b className="text-theme-secondary">@{connectedAs}</b>
-            {expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ' · acesso permanente'}</span>
+            {viaAgency ? ' · via BM da Ráfia Colab' : expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ' · acesso permanente'}</span>
           <button onClick={() => setShowOptions(o => !o)} className="underline hover:text-theme-primary">Reconectar</button>
           <button onClick={disconnect} className="underline hover:text-red-500">Desconectar</button>
         </div>

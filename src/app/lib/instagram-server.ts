@@ -24,6 +24,7 @@ export type IgAccount = {
   access_token: string
   token_expires_at: string | null
   api_host: ApiHost
+  via_agency?: boolean
 }
 
 export async function getIgAccount(db: SupabaseClient, clientId: string): Promise<IgAccount | null> {
@@ -33,7 +34,81 @@ export async function getIgAccount(db: SupabaseClient, clientId: string): Promis
     .eq('client_id', clientId)
     .maybeSingle()
   if (error) throw new Error(`Falha ao ler conta do Instagram: ${error.message}`)
-  return (data as IgAccount | null) ?? null
+  const acc = (data as IgAccount | null) ?? null
+  if (acc && acc.access_token === AGENCY_TOKEN_MARKER) {
+    acc.via_agency = true
+    acc.access_token = process.env.META_AGENCY_TOKEN ?? ''
+  }
+  return acc
+}
+
+/* ─── Conexão pela BM da agência ───────────────────────────────────────────────
+ * Um usuário do sistema da BM da Ráfia Colab (token em META_AGENCY_TOKEN, não expira)
+ * enxerga todas as contas do Instagram que estão na BM ou foram compartilhadas com ela
+ * por clientes (parceiro). No banco, o cliente guarda só o ID da conta + este marcador. */
+export const AGENCY_TOKEN_MARKER = '__agency__'
+
+export function agencyToken(): string {
+  const t = process.env.META_AGENCY_TOKEN
+  if (!t) throw new Error('META_AGENCY_TOKEN não configurado na Vercel.')
+  return t
+}
+
+export type AgencyIgAccount = { id: string; username: string; name?: string }
+
+/** Lista as contas do Instagram acessíveis pelo usuário do sistema da agência. */
+export async function listAgencyAccounts(): Promise<AgencyIgAccount[]> {
+  const t = encodeURIComponent(agencyToken())
+  const fb = GRAPH_BASE.facebook
+  const found = new Map<string, AgencyIgAccount>()
+  const errors: string[] = []
+
+  const add = (id?: string, username?: string, name?: string) => {
+    if (id && !found.has(id)) found.set(id, { id, username: username ?? '', name })
+  }
+
+  // Busca paginada (até 10 páginas) num endpoint
+  const crawl = async (url: string, pick: (row: Record<string, unknown>) => void) => {
+    let next: string | undefined = url
+    for (let i = 0; next && i < 10; i++) {
+      const r = await getJson(next)
+      if (!r.ok) { if (r.body.error?.message) errors.push(r.body.error.message); return }
+      for (const row of (r.body.data as Record<string, unknown>[] | undefined) ?? []) pick(row)
+      next = (r.body.paging as { next?: string } | undefined)?.next
+    }
+  }
+
+  // 1) Contas do Instagram atribuídas ao usuário do sistema
+  await crawl(`${fb}/me/assigned_instagram_accounts?fields=id,username&limit=100&access_token=${t}`,
+    row => add(row.id as string, row.username as string))
+  // 2) Contas ligadas às Páginas atribuídas ao usuário do sistema
+  await crawl(`${fb}/me/accounts?fields=name,instagram_business_account{id,username}&limit=100&access_token=${t}`,
+    row => {
+      const ig = row.instagram_business_account as { id?: string; username?: string } | undefined
+      add(ig?.id, ig?.username, row.name as string)
+    })
+
+  if (!found.size && errors.length) throw new Error(errors[0])
+  return Array.from(found.values()).sort((a, b) => a.username.localeCompare(b.username))
+}
+
+/** Vincula um cliente a uma conta do Instagram da BM da agência. */
+export async function saveAgencyConnection(db: SupabaseClient, clientId: string, acc: AgencyIgAccount) {
+  const now = new Date().toISOString()
+  const { error } = await db.from('instagram_accounts').upsert({
+    client_id: clientId,
+    ig_user_id: acc.id,
+    username: acc.username,
+    access_token: AGENCY_TOKEN_MARKER,
+    token_expires_at: null,
+    api_host: 'facebook',
+    business_id: null,
+    last_refresh_at: null,
+    last_error: null,
+    connected_at: now,
+    updated_at: now,
+  }, { onConflict: 'client_id' })
+  if (error) throw new Error(`Falha ao salvar: ${error.message}`)
 }
 
 /** Monta a URL da API para uma rota "me/..." usada pelo front, conforme o tipo de conexão. */

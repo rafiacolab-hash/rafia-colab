@@ -80,13 +80,18 @@ async function fetchOverdue() {
 
   const { data: clients } = await supabase
     .from('clients')
-    .select('id, name')
+    .select('id, name, active')
     .in('id', clientIds)
 
   const nameMap: Record<string, string> = {}
-  for (const c of clients ?? []) nameMap[c.id] = c.name
+  const inactive = new Set<string>()
+  for (const c of clients ?? []) {
+    nameMap[c.id] = c.name
+    if (c.active === false) inactive.add(c.id)
+  }
 
-  return clientIds.map(id => ({
+  // Clientes inativos não entram no relatório de atrasos
+  return clientIds.filter(id => !inactive.has(id)).map(id => ({
     clientName: nameMap[id] ?? id,
     count: byClient[id].dates.length,
     oldest: byClient[id].dates.sort()[0],
