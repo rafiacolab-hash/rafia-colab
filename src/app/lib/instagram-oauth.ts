@@ -1,30 +1,33 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
+import { GRAPH_VERSION } from './instagram-server'
 
-// Server-only: fluxo OAuth "Login com Instagram" (Instagram API with Instagram Login).
+// Server-only: "Conectar com Instagram" via login unificado (Facebook Login para Empresas).
+// O cliente pode entrar com o Instagram ou com o Facebook; o resultado é um token de
+// usuário do sistema do portfólio dele, que não expira.
 //
 // Variáveis de ambiente (Vercel → Settings → Environment Variables):
-//   INSTAGRAM_APP_ID      ID do app do Instagram (painel Meta → Instagram → Configuração da API com login do Instagram)
-//   INSTAGRAM_APP_SECRET  Chave secreta do app do Instagram (mesma tela)
+//   META_APP_ID           ID do app (painel Meta → Configurações do app → Básico)
+//   META_APP_SECRET       Chave secreta do app (mesma tela)
+//   META_LOGIN_CONFIG_ID  ID da configuração (Login do Facebook para Empresas → Configurações)
 //
-// O redirect URI (https://<domínio>/api/instagram/oauth/callback) precisa estar
-// cadastrado em "Configurar login empresarial do Instagram → URIs de redirecionamento OAuth".
-
-export const IG_SCOPES = 'instagram_business_basic,instagram_business_manage_insights'
+// O redirect (https://<domínio>/api/instagram/oauth/callback) precisa estar cadastrado
+// em Casos de uso → API do Instagram → API setup with Unified login → URL de redirecionamento.
 
 export type OAuthState = {
-  c: string            // client_id do sistema
+  c: string             // client_id do sistema
   m: 'admin' | 'invite' // admin logado ou link enviado ao cliente
-  e: number            // expiração (epoch s)
-  n: string            // nonce
+  e: number             // expiração (epoch s)
+  n: string             // nonce
 }
 
 export function oauthConfig() {
-  const appId = process.env.INSTAGRAM_APP_ID
-  const secret = process.env.INSTAGRAM_APP_SECRET
-  if (!appId || !secret) {
-    throw new Error('INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET não configurados na Vercel.')
+  const appId = process.env.META_APP_ID
+  const secret = process.env.META_APP_SECRET
+  const configId = process.env.META_LOGIN_CONFIG_ID
+  if (!appId || !secret || !configId) {
+    throw new Error('META_APP_ID / META_APP_SECRET / META_LOGIN_CONFIG_ID não configurados na Vercel.')
   }
-  return { appId, secret }
+  return { appId, secret, configId }
 }
 
 const b64url = (buf: Buffer) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -62,43 +65,33 @@ export function redirectUri(origin: string) {
 }
 
 export function authorizeUrl(origin: string, state: string) {
-  const { appId } = oauthConfig()
+  const { appId, configId } = oauthConfig()
   const qs = new URLSearchParams({
     client_id: appId,
+    config_id: configId,
     redirect_uri: redirectUri(origin),
     response_type: 'code',
-    scope: IG_SCOPES,
+    override_default_response_type: 'true',
     state,
   })
-  return `https://www.instagram.com/oauth/authorize?${qs.toString()}`
+  return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${qs.toString()}`
 }
 
-/** Troca o code por token curto e depois por token de longa duração (~60 dias). */
-export async function exchangeCode(origin: string, code: string): Promise<{ token: string; expiresAt: string }> {
+/** Troca o code pelo token (usuário do sistema do portfólio do cliente). */
+export async function exchangeCode(origin: string, code: string): Promise<string> {
   const { appId, secret } = oauthConfig()
-
-  const form = new URLSearchParams({
+  const qs = new URLSearchParams({
     client_id: appId,
     client_secret: secret,
-    grant_type: 'authorization_code',
     redirect_uri: redirectUri(origin),
     code,
   })
-  const res = await fetch('https://api.instagram.com/oauth/access_token', { method: 'POST', body: form, cache: 'no-store' })
+  const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token?${qs.toString()}`, { cache: 'no-store' })
   const body = await res.json().catch(() => null)
-  const short = body?.access_token ?? body?.data?.[0]?.access_token
-  if (!res.ok || !short) {
-    throw new Error(body?.error_message || body?.error?.message || `Falha ao trocar o código (HTTP ${res.status}).`)
+  if (!res.ok || !body?.access_token) {
+    throw new Error(body?.error?.message || `Falha ao trocar o código (HTTP ${res.status}).`)
   }
-
-  const qs = new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: secret, access_token: String(short) })
-  const res2 = await fetch(`https://graph.instagram.com/access_token?${qs.toString()}`, { cache: 'no-store' })
-  const body2 = await res2.json().catch(() => null)
-  if (!res2.ok || !body2?.access_token) {
-    throw new Error(body2?.error?.message || `Falha ao gerar token de longa duração (HTTP ${res2.status}).`)
-  }
-  const ttl = Number(body2.expires_in) || 60 * 24 * 3600
-  return { token: String(body2.access_token), expiresAt: new Date(Date.now() + ttl * 1000).toISOString() }
+  return String(body.access_token)
 }
 
 /** Origem pública da requisição (respeita o domínio usado: gestao.rafiacolab.com.br, preview etc.). */

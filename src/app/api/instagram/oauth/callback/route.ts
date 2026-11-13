@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '@/app/lib/server-auth'
-import { validateToken } from '@/app/lib/instagram-server'
+import { resolveToken, saveConnection } from '@/app/lib/instagram-server'
 import { exchangeCode, publicOrigin, verifyPayload } from '@/app/lib/instagram-oauth'
 
 export const dynamic = 'force-dynamic'
 
-// Retorno do Instagram após o usuário autorizar. O "state" assinado diz qual cliente conectar.
+// Retorno do login (Facebook/Instagram) após o usuário autorizar.
+// O "state" assinado diz qual cliente do sistema conectar.
 export async function GET(req: NextRequest) {
   const origin = publicOrigin(req)
   const sp = req.nextUrl.searchParams
@@ -21,34 +22,18 @@ export async function GET(req: NextRequest) {
   }
 
   if (sp.get('error')) {
-    return done(false, sp.get('error_description') || 'A autorização foi cancelada.')
+    return done(false, sp.get('error_description') || sp.get('error_reason') || 'A autorização foi cancelada.')
   }
   if (!state) return done(false, 'Sessão de conexão inválida ou expirada. Tente novamente.')
 
   const code = sp.get('code')
-  if (!code) return done(false, 'O Instagram não retornou o código de autorização.')
+  if (!code) return done(false, 'Não foi recebido o código de autorização.')
 
   try {
-    const { token, expiresAt } = await exchangeCode(origin, code.replace(/#_$/, ''))
-    const { igUserId, username } = await validateToken(token)
-    const now = new Date().toISOString()
-
-    const { error } = await serviceClient()
-      .from('instagram_accounts')
-      .upsert({
-        client_id: state.c,
-        ig_user_id: igUserId,
-        username,
-        access_token: token,
-        token_expires_at: expiresAt,
-        last_refresh_at: now,
-        last_error: null,
-        connected_at: now,
-        updated_at: now,
-      }, { onConflict: 'client_id' })
-    if (error) throw new Error(`Falha ao salvar: ${error.message}`)
-
-    return done(true, 'Instagram conectado com sucesso.', username)
+    const token = await exchangeCode(origin, code)
+    const resolved = await resolveToken(token)
+    await saveConnection(serviceClient(), state.c, token, resolved)
+    return done(true, 'Instagram conectado com sucesso.', resolved.username)
   } catch (e) {
     return done(false, e instanceof Error ? e.message : 'Erro ao concluir a conexão.')
   }

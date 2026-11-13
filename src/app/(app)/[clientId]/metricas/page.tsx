@@ -534,8 +534,8 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
         </button>
       </div>
       <p className="text-xs text-theme-muted">
-        <b>Conectar com Instagram</b>: você entra com o Instagram do cliente aqui mesmo.{' '}
-        <b>Link para o cliente</b>: envie por WhatsApp; ele entra com o próprio Instagram e autoriza (válido por 7 dias, não precisa de login no sistema).
+        <b>Conectar com Instagram</b>: você entra com o Instagram (ou Facebook) do cliente aqui mesmo.{' '}
+        <b>Link para o cliente</b>: envie por WhatsApp; ele entra com o próprio Instagram ou Facebook e autoriza (válido por 7 dias, não dá acesso ao sistema).
       </p>
 
       {invite && (
@@ -554,7 +554,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
         </button>
         {showManual && (
           <div className="mt-2">
-            <textarea value={token} onChange={e => setToken(e.target.value)} rows={3} placeholder="IGAA…"
+            <textarea value={token} onChange={e => setToken(e.target.value)} rows={3} placeholder="Token de acesso"
               className="w-full rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs font-mono text-theme-primary outline-none focus:border-theme-border-strong" />
             <button onClick={saveToken} disabled={!token.trim() || saving}
               className="mt-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-sm font-semibold rounded-lg transition-colors">
@@ -573,7 +573,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
       <div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-theme-muted">
           <span>Conectado como <b className="text-theme-secondary">@{connectedAs}</b>
-            {expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ''}</span>
+            {expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ' · acesso permanente'}</span>
           <button onClick={() => setShowOptions(o => !o)} className="underline hover:text-theme-primary">Reconectar</button>
           <button onClick={disconnect} className="underline hover:text-red-500">Desconectar</button>
         </div>
@@ -586,7 +586,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
     <div className="max-w-xl mx-auto mt-6 rounded-xl border border-theme-border bg-theme-card p-6">
       <h2 className="text-base font-semibold text-theme-primary">Conectar Instagram</h2>
       <p className="text-sm text-theme-secondary mt-1 mb-5">
-        Conecte a conta profissional (Empresa ou Criador) deste cliente. O acesso fica guardado só no servidor e é renovado automaticamente.
+        Conecte a conta profissional (Empresa ou Criador) deste cliente. O acesso fica guardado só no servidor e não expira (o cliente pode revogar quando quiser).
       </p>
       {options}
     </div>

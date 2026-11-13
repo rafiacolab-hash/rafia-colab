@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await db
     .from('instagram_accounts')
     .select('client_id, access_token, token_expires_at')
+    .eq('api_host', 'instagram') // tokens do login unificado não expiram
     .or(`token_expires_at.is.null,token_expires_at.lt.${limit}`)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { canAccessClient, getCaller, serviceClient } from '@/app/lib/server-auth'
-import { getIgAccount, IG_GRAPH, type IgAccount } from '@/app/lib/instagram-server'
+import { getIgAccount, graphUrl, type IgAccount } from '@/app/lib/instagram-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   qs.set('access_token', account.access_token)
 
   try {
-    const res = await fetch(`${IG_GRAPH}/${apiPath}?${qs.toString()}`, { cache: 'no-store' })
+    const res = await fetch(`${graphUrl(account, apiPath)}?${qs.toString()}`, { cache: 'no-store' })
     const text = await res.text()
     return new NextResponse(text, {
       status: res.status,

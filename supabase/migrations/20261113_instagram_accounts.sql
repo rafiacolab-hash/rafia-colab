@@ -22,3 +22,8 @@ GRANT ALL ON public.instagram_accounts TO service_role;
 
 COMMENT ON TABLE public.instagram_accounts IS
   'Token da API do Instagram por cliente. Somente service_role (rotas /api/instagram/*).';
+
+-- Login unificado (Facebook Login para Empresas): token de usuário do sistema, host graph.facebook.com
+ALTER TABLE public.instagram_accounts
+  ADD COLUMN IF NOT EXISTS api_host TEXT NOT NULL DEFAULT 'instagram',
+  ADD COLUMN IF NOT EXISTS business_id TEXT;
