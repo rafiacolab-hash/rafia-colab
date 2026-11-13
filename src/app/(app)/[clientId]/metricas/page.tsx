@@ -39,6 +39,15 @@ export default function MetricasPage({ params }: Props) {
   const [conn, setConn] = useState<Connection | null>(null)
   const [connError, setConnError] = useState('')
   const [tokenExpired, setTokenExpired] = useState(false)
+  const [justConnected, setJustConnected] = useState(false)
+
+  // Volta do "Conectar com Instagram" com ?ig=ok
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('ig') === 'ok') {
+      setJustConnected(true)
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   const [preset, setPreset] = useState<Preset>('prevMonth')
   const [range, setRange] = useState<Range>(() => rangeForPreset('prevMonth'))
@@ -245,6 +254,7 @@ export default function MetricasPage({ params }: Props) {
 
       <div className="flex-1 overflow-auto px-8 py-6 bg-theme-bg">
         {connError && <Banner tone="error">{connError}</Banner>}
+        {justConnected && <Banner tone="ok">Instagram conectado com sucesso!</Banner>}
         {tokenExpired && (
           <Banner tone="error">
             Token expirado ou inválido — gere um novo token na Meta e reconecte este cliente{conn?.canManage ? ' (abaixo)' : ' (peça a um administrador)'}.
@@ -382,10 +392,12 @@ function Skel({ w }: { w: string }) {
   return <span className={`inline-block h-3 ${w} rounded bg-theme-surface animate-pulse align-middle`} />
 }
 
-function Banner({ tone, children }: { tone: 'error' | 'warn'; children: React.ReactNode }) {
+function Banner({ tone, children }: { tone: 'error' | 'warn' | 'ok'; children: React.ReactNode }) {
   const cls = tone === 'error'
     ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20'
-    : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+    : tone === 'ok'
+      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+      : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
   return <div className={`mb-4 px-4 py-2.5 rounded-lg border text-sm ${cls}`}>{children}</div>
 }
 
@@ -453,10 +465,13 @@ function PostCard({ post }: { post: PostRow }) {
 function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
   clientId: string; canManage: boolean; connectedAs?: string | null; expiresAt?: string | null; onDone: () => void
 }) {
-  const [open, setOpen] = useState(!connectedAs)
+  const [showManual, setShowManual] = useState(false)
+  const [showOptions, setShowOptions] = useState(!connectedAs)
   const [token, setToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ tone: 'error' | 'ok'; text: string } | null>(null)
+  const [invite, setInvite] = useState<{ url: string; expiresAt: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   if (!canManage) {
     return (
@@ -467,7 +482,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
     )
   }
 
-  const save = async () => {
+  const saveToken = async () => {
     setSaving(true); setMsg(null)
     try {
       const res = await fetch(`/api/instagram/${clientId}/connection`, {
@@ -486,44 +501,94 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, onDone }: {
     }
   }
 
+  const makeInvite = async () => {
+    setMsg(null); setCopied(false)
+    try {
+      const res = await fetch(`/api/instagram/${clientId}/invite`, { method: 'POST', credentials: 'same-origin' })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setInvite(body)
+      try { await navigator.clipboard.writeText(body.url); setCopied(true) } catch { /* sem permissão de clipboard */ }
+    } catch (e) {
+      setMsg({ tone: 'error', text: e instanceof Error ? e.message : 'Erro ao gerar link.' })
+    }
+  }
+
   const disconnect = async () => {
     if (!confirm('Desconectar o Instagram deste cliente? O token salvo será apagado.')) return
     await fetch(`/api/instagram/${clientId}/connection`, { method: 'DELETE', credentials: 'same-origin' })
     onDone()
   }
 
-  return (
-    <div className={connectedAs ? '' : 'max-w-xl mx-auto mt-6 rounded-xl border border-theme-border bg-theme-card p-6'}>
-      {connectedAs ? (
+  const options = (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <a href={`/api/instagram/oauth/start?clientId=${clientId}`}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+          style={{ background: IG_GRADIENT }}>
+          Conectar com Instagram
+        </a>
+        <button onClick={makeInvite}
+          className="px-4 py-2 rounded-lg border border-theme-border bg-theme-surface text-theme-primary text-sm font-medium hover:border-theme-border-strong transition-colors">
+          Gerar link para o cliente
+        </button>
+      </div>
+      <p className="text-xs text-theme-muted">
+        <b>Conectar com Instagram</b>: você entra com o Instagram do cliente aqui mesmo.{' '}
+        <b>Link para o cliente</b>: envie por WhatsApp; ele entra com o próprio Instagram e autoriza (válido por 7 dias, não precisa de login no sistema).
+      </p>
+
+      {invite && (
+        <div className="rounded-lg border border-theme-border bg-theme-surface p-3">
+          <p className="text-xs text-theme-secondary mb-1.5">
+            {copied ? 'Link copiado! ' : ''}Válido até {fmtDayLong(new Date(invite.expiresAt))}:
+          </p>
+          <input readOnly value={invite.url} onFocus={e => e.currentTarget.select()}
+            className="w-full rounded border border-theme-border bg-theme-card px-2 py-1.5 text-[11px] font-mono text-theme-primary" />
+        </div>
+      )}
+
+      <div>
+        <button onClick={() => setShowManual(s => !s)} className="text-xs text-theme-muted underline hover:text-theme-primary">
+          {showManual ? 'Ocultar' : 'Ou colar um token manualmente'}
+        </button>
+        {showManual && (
+          <div className="mt-2">
+            <textarea value={token} onChange={e => setToken(e.target.value)} rows={3} placeholder="IGAA…"
+              className="w-full rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs font-mono text-theme-primary outline-none focus:border-theme-border-strong" />
+            <button onClick={saveToken} disabled={!token.trim() || saving}
+              className="mt-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-sm font-semibold rounded-lg transition-colors">
+              {saving ? 'Validando…' : 'Salvar token'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{msg.text}</p>}
+    </div>
+  )
+
+  if (connectedAs) {
+    return (
+      <div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-theme-muted">
           <span>Conectado como <b className="text-theme-secondary">@{connectedAs}</b>
             {expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ''}</span>
-          <button onClick={() => setOpen(o => !o)} className="underline hover:text-theme-primary">Trocar token</button>
+          <button onClick={() => setShowOptions(o => !o)} className="underline hover:text-theme-primary">Reconectar</button>
           <button onClick={disconnect} className="underline hover:text-red-500">Desconectar</button>
         </div>
-      ) : (
-        <>
-          <h2 className="text-base font-semibold text-theme-primary">Conectar Instagram</h2>
-          <p className="text-sm text-theme-secondary mt-1 mb-4">
-            Cole o token de acesso gerado no painel do app Meta (<i>Configuração da API com login do Instagram → Gerar tokens de acesso</i>).
-            Ele fica guardado só no servidor.
-          </p>
-        </>
-      )}
+        {showOptions && <div className="mt-4 max-w-xl">{options}</div>}
+      </div>
+    )
+  }
 
-      {open && (
-        <div className={connectedAs ? 'mt-3 max-w-xl' : ''}>
-          <textarea value={token} onChange={e => setToken(e.target.value)} rows={3} placeholder="IGAA…"
-            className="w-full rounded-lg border border-theme-border bg-theme-surface px-3 py-2 text-xs font-mono text-theme-primary outline-none focus:border-theme-border-strong" />
-          <div className="flex items-center gap-3 mt-2">
-            <button onClick={save} disabled={!token.trim() || saving}
-              className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-sm font-semibold rounded-lg transition-colors">
-              {saving ? 'Validando…' : 'Salvar token'}
-            </button>
-            {msg && <span className={`text-xs ${msg.tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{msg.text}</span>}
-          </div>
-        </div>
-      )}
+  return (
+    <div className="max-w-xl mx-auto mt-6 rounded-xl border border-theme-border bg-theme-card p-6">
+      <h2 className="text-base font-semibold text-theme-primary">Conectar Instagram</h2>
+      <p className="text-sm text-theme-secondary mt-1 mb-5">
+        Conecte a conta profissional (Empresa ou Criador) deste cliente. O acesso fica guardado só no servidor e é renovado automaticamente.
+      </p>
+      {options}
     </div>
   )
 }
