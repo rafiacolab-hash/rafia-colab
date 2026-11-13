@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { canAccessClient, getCaller, serviceClient } from '@/app/lib/server-auth'
-import { getIgAccount, resolveToken, saveConnection } from '@/app/lib/instagram-server'
+import { getIgAccount, listAgencyAccounts, resolveToken, saveAgencyConnection, saveConnection } from '@/app/lib/instagram-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +18,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       connected: !!acc,
       username: acc?.username ?? null,
       expiresAt: acc?.token_expires_at ?? null,
+      viaAgency: !!acc?.via_agency,
       canManage: caller.role === 'admin',
     })
   } catch (e) {
@@ -25,12 +26,27 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   }
 }
 
-/** Salva/troca um token colado manualmente (somente admin). Body: { token } */
+/**
+ * Salva a conexão (somente admin).
+ * Body: { token } para token colado manualmente, ou { agencyIgUserId } para usar uma conta da BM da agência.
+ */
 export async function POST(req: NextRequest, { params }: Ctx) {
   const caller = await getCaller()
   if (!caller || caller.role !== 'admin') return NextResponse.json({ error: 'Apenas administradores.' }, { status: 403 })
 
-  const { token } = (await req.json().catch(() => ({}))) as { token?: string }
+  const { token, agencyIgUserId } = (await req.json().catch(() => ({}))) as { token?: string; agencyIgUserId?: string }
+
+  if (agencyIgUserId) {
+    try {
+      const acc = (await listAgencyAccounts()).find(a => a.id === String(agencyIgUserId))
+      if (!acc) return NextResponse.json({ error: 'Essa conta não está acessível pela BM da agência.' }, { status: 400 })
+      await saveAgencyConnection(serviceClient(), params.clientId, acc)
+      return NextResponse.json({ success: true, username: acc.username })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Erro interno.' }, { status: 400 })
+    }
+  }
+
   const clean = String(token ?? '').trim()
   if (!clean) return NextResponse.json({ error: 'Cole o token de acesso.' }, { status: 400 })
 

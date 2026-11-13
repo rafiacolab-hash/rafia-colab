@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import {
   Save, Loader2, Plus, X, ExternalLink,
-  Upload, FileText, Trash2, Check, BookOpen,
+  Upload, FileText, Trash2, Check, BookOpen, Power,
 } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
@@ -119,6 +119,30 @@ export default function BrandProfilePage() {
   const [saved,        setSaved]        = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [profileId,    setProfileId]    = useState<string | null>(null)
+  const [clientActive, setClientActive] = useState(true)
+  const [togglingActive, setTogglingActive] = useState(false)
+
+  // ── Ativar / desativar cliente (admin) ──────────────────────────────────────
+  const toggleActive = async () => {
+    const next = !clientActive
+    if (!next && !confirm(`Desativar ${clientName}? O cliente vai para "Inativos" na barra lateral e sai do painel geral. Nada é apagado.`)) return
+    setTogglingActive(true); setError(null)
+    try {
+      const res = await fetch('/api/admin/client-status', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, active: next }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setClientActive(next)
+      ;(window as Window & { __sidebarRefreshClients?: () => void }).__sidebarRefreshClients?.()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao alterar status do cliente.')
+    } finally {
+      setTogglingActive(false)
+    }
+  }
 
   // Links state
   const [newLinkLabel, setNewLinkLabel] = useState('')
@@ -135,10 +159,13 @@ export default function BrandProfilePage() {
     const supabase = createDataClient()
 
     Promise.all([
-      supabase.from('clients').select('name').eq('id', clientId).single(),
+      supabase.from('clients').select('name, active').eq('id', clientId).single(),
       supabase.from('client_brand_profile').select('*').eq('client_id', clientId).maybeSingle(),
     ]).then(([clientRes, profileRes]) => {
-      if (clientRes.data) setClientName(clientRes.data.name)
+      if (clientRes.data) {
+        setClientName(clientRes.data.name)
+        setClientActive(clientRes.data.active !== false)
+      }
       if (profileRes.data) {
         setProfileId(profileRes.data.id)
         setProfile({
@@ -305,9 +332,32 @@ export default function BrandProfilePage() {
           <BookOpen size={18} className="text-theme-muted" />
           <div>
             <h1 className="text-lg font-semibold text-theme-primary">Perfil da Marca</h1>
-            <p className="text-xs text-theme-muted mt-0.5">{clientName}</p>
+            <p className="text-xs text-theme-muted mt-0.5 flex items-center gap-2">
+              {clientName}
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                clientActive
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-theme-surface text-theme-muted'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${clientActive ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+                {clientActive ? 'Ativo' : 'Inativo'}
+              </span>
+            </p>
           </div>
         </div>
+
+        <div className="flex items-center gap-2">
+        {isAdmin && (
+          <button
+            onClick={toggleActive}
+            disabled={togglingActive}
+            title={clientActive ? 'Mover este cliente para Inativos' : 'Mover este cliente para Ativos'}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-theme-border bg-theme-surface text-theme-secondary hover:text-theme-primary hover:border-theme-border-strong transition-colors disabled:opacity-50"
+          >
+            {togglingActive ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />}
+            {clientActive ? 'Desativar cliente' : 'Reativar cliente'}
+          </button>
+        )}
 
         {canEdit && (
           <button
@@ -325,6 +375,7 @@ export default function BrandProfilePage() {
             )}
           </button>
         )}
+        </div>
       </div>
 
       {/* ── Body ── */}

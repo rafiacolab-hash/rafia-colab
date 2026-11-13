@@ -30,6 +30,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   if (!account) {
     return NextResponse.json({ error: { code: 'not_connected', message: 'Instagram não conectado para este cliente.' } }, { status: 404 })
   }
+  if (!account.access_token) {
+    return NextResponse.json({ error: { message: 'META_AGENCY_TOKEN não configurado na Vercel.' } }, { status: 500 })
+  }
 
   const qs = new URLSearchParams()
   for (const k of ALLOWED_PARAMS) {
