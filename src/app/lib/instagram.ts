@@ -160,8 +160,11 @@ export async function totalValue(clientId: string, metrics: string, range: Range
 const nfCompact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 })
 const nfFull = new Intl.NumberFormat('pt-BR')
 const nfPct = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const nfPctSmall = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 export const fmt = (n: number | null | undefined) =>
   n == null || isNaN(n) ? '—' : Math.abs(n) >= 10000 ? nfCompact.format(n) : nfFull.format(Math.round(n))
-export const fmtPct = (n: number | null | undefined) => (n == null || isNaN(n) ? '—' : `${nfPct.format(n)}%`)
+// Abaixo de 1% mostra 2 casas (contas grandes têm engajamento por seguidor baixo, ex.: 0,07%)
+export const fmtPct = (n: number | null | undefined) =>
+  n == null || isNaN(n) ? '—' : `${(n !== 0 && Math.abs(n) < 1 ? nfPctSmall : nfPct).format(n)}%`
 export const fmtDayShort = (d: Date) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 export const fmtDayLong = (d: Date) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
