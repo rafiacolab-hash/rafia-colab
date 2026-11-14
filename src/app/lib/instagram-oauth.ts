@@ -64,7 +64,12 @@ export function redirectUri(origin: string) {
   return `${origin}/api/instagram/oauth/callback`
 }
 
-export function authorizeUrl(origin: string, state: string) {
+/**
+ * @param forceLogin  true → prompt=login: a Meta sempre pergunta com qual conta entrar
+ *                    (Facebook ou Instagram), em vez de seguir com o Facebook já logado.
+ *                    Usado para entrar com o Instagram da cliente e nos links de convite.
+ */
+export function authorizeUrl(origin: string, state: string, forceLogin = false) {
   const { appId, configId } = oauthConfig()
   const qs = new URLSearchParams({
     client_id: appId,
@@ -74,6 +79,7 @@ export function authorizeUrl(origin: string, state: string) {
     override_default_response_type: 'true',
     state,
   })
+  if (forceLogin) qs.set('prompt', 'login')
   return `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth?${qs.toString()}`
 }
 

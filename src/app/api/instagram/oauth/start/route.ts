@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       const p = verifyPayload(invite)
       if (!p || p.m !== 'invite') return fail('Link de conexão inválido ou expirado. Peça um novo link.')
       const state = signPayload({ c: p.c, m: 'invite', e: Math.floor(Date.now() / 1000) + 3600 })
-      return NextResponse.redirect(authorizeUrl(origin, state))
+      return NextResponse.redirect(authorizeUrl(origin, state, true))
     }
 
     const clientId = req.nextUrl.searchParams.get('clientId')
@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
     if (!caller || caller.role !== 'admin') return fail('Apenas administradores podem conectar contas.')
 
     const state = signPayload({ c: clientId, m: 'admin', e: Math.floor(Date.now() / 1000) + 3600 })
-    return NextResponse.redirect(authorizeUrl(origin, state))
+    // ?ig=1 → "Entrar com o Instagram da cliente": força a escolha de conta
+    return NextResponse.redirect(authorizeUrl(origin, state, req.nextUrl.searchParams.get('ig') === '1'))
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'Erro ao iniciar a conexão.')
   }

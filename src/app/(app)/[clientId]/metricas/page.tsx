@@ -591,10 +591,14 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, 
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <a href={`/api/instagram/oauth/start?clientId=${clientId}`}
+        <a href={`/api/instagram/oauth/start?clientId=${clientId}&ig=1`}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold hover:opacity-90 transition-opacity"
           style={{ background: IG_GRADIENT }}>
-          Conectar com Instagram
+          Entrar com o Instagram da cliente
+        </a>
+        <a href={`/api/instagram/oauth/start?clientId=${clientId}`}
+          className="px-4 py-2 rounded-lg border border-theme-border bg-theme-surface text-theme-primary text-sm font-medium hover:border-theme-border-strong transition-colors">
+          Conectar pelo meu Facebook
         </a>
         <button onClick={makeInvite}
           className="px-4 py-2 rounded-lg border border-theme-border bg-theme-surface text-theme-primary text-sm font-medium hover:border-theme-border-strong transition-colors">
@@ -602,7 +606,8 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, 
         </button>
       </div>
       <p className="text-xs text-theme-muted">
-        <b>Conectar com Instagram</b>: você entra com o Instagram (ou Facebook) do cliente aqui mesmo.{' '}
+        <b>Entrar com o Instagram da cliente</b>: a Meta pede login; escolha Instagram e use o usuário e a senha da cliente (a conta precisa ter aceito o convite de testador do app).{' '}
+        <b>Conectar pelo meu Facebook</b>: para contas em portfólios onde você tem controle total.{' '}
         <b>Link para o cliente</b>: envie por WhatsApp; ele entra com o próprio Instagram ou Facebook e autoriza (válido por 7 dias, não dá acesso ao sistema).
       </p>
 

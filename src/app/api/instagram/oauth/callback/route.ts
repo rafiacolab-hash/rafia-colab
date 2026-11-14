@@ -22,7 +22,10 @@ export async function GET(req: NextRequest) {
   }
 
   if (sp.get('error')) {
-    return done(false, sp.get('error_description') || sp.get('error_reason') || 'A autorização foi cancelada.')
+    // Cancelar na tela da Meta volta como "Permissions error" / user_denied
+    const desc = sp.get('error_description') || ''
+    const cancelled = sp.get('error_reason') === 'user_denied' || /permissions error/i.test(desc)
+    return done(false, cancelled ? 'A conexão foi cancelada. Nada foi autorizado.' : desc || 'A autorização não foi concluída.')
   }
   if (!state) return done(false, 'Sessão de conexão inválida ou expirada. Tente novamente.')
 
