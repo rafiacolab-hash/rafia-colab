@@ -25,7 +25,12 @@ export type IgAccount = {
   token_expires_at: string | null
   api_host: ApiHost
   via_agency?: boolean
+  /** Conectado só pelo @ (dados públicos via Business Discovery) — sem token próprio. */
+  public_mode?: boolean
 }
+
+/** Marcador de conta acompanhada só pelo @ (Business Discovery). */
+export const DISCOVERY_TOKEN_MARKER = '__discovery__'
 
 export async function getIgAccount(db: SupabaseClient, clientId: string): Promise<IgAccount | null> {
   const { data, error } = await db
@@ -38,6 +43,10 @@ export async function getIgAccount(db: SupabaseClient, clientId: string): Promis
   if (acc && acc.access_token === AGENCY_TOKEN_MARKER) {
     acc.via_agency = true
     acc.access_token = process.env.META_AGENCY_TOKEN ?? ''
+  }
+  if (acc && acc.access_token === DISCOVERY_TOKEN_MARKER) {
+    acc.public_mode = true
+    acc.access_token = ''
   }
   return acc
 }
