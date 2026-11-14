@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { canAccessClient, getCaller, serviceClient } from '@/app/lib/server-auth'
 import { getIgAccount, listAgencyAccounts, resolveToken, saveAgencyConnection, saveConnection } from '@/app/lib/instagram-server'
+import { fetchPublicProfile, savePublicConnection, saveSnapshot } from '@/app/lib/instagram-public'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       username: acc?.username ?? null,
       expiresAt: acc?.token_expires_at ?? null,
       viaAgency: !!acc?.via_agency,
+      publicMode: !!acc?.public_mode,
       canManage: caller.role === 'admin',
     })
   } catch (e) {
@@ -34,7 +36,22 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const caller = await getCaller()
   if (!caller || caller.role !== 'admin') return NextResponse.json({ error: 'Apenas administradores.' }, { status: 403 })
 
-  const { token, agencyIgUserId } = (await req.json().catch(() => ({}))) as { token?: string; agencyIgUserId?: string }
+  const { token, agencyIgUserId, publicUsername } = (await req.json().catch(() => ({}))) as {
+    token?: string; agencyIgUserId?: string; publicUsername?: string
+  }
+
+  // Só pelo @ (dados públicos via Business Discovery)
+  if (publicUsername) {
+    try {
+      const db = serviceClient()
+      const { profile } = await fetchPublicProfile(db, publicUsername, 1)
+      await savePublicConnection(db, params.clientId, profile)
+      await saveSnapshot(db, params.clientId, profile).catch(() => {})
+      return NextResponse.json({ success: true, username: profile.username })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Erro interno.' }, { status: 400 })
+    }
+  }
 
   if (agencyIgUserId) {
     try {

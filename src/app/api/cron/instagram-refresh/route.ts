@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { serviceClient } from '@/app/lib/server-auth'
-import { refreshToken } from '@/app/lib/instagram-server'
+import { getIgAccount, graphUrl, refreshToken } from '@/app/lib/instagram-server'
+import { fetchPublicProfile, saveSnapshot } from '@/app/lib/instagram-public'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,5 +43,26 @@ export async function GET(req: NextRequest) {
     results.push({ clientId: acc.client_id as string, ok: !!refreshed })
   }
 
-  return NextResponse.json({ checked: results.length, results })
+  // Retrato diário de seguidores de todas as contas conectadas (histórico de crescimento)
+  const { data: all } = await db.from('instagram_accounts').select('client_id')
+  let snapshots = 0
+  for (const row of all ?? []) {
+    try {
+      const acc = await getIgAccount(db, row.client_id as string)
+      if (!acc?.username) continue
+      if (acc.public_mode || !acc.access_token) {
+        const { profile } = await fetchPublicProfile(db, acc.username, 1)
+        await saveSnapshot(db, acc.client_id, profile)
+      } else {
+        const r = await fetch(`${graphUrl(acc, 'me')}?fields=followers_count,follows_count,media_count&access_token=${encodeURIComponent(acc.access_token)}`, { cache: 'no-store' })
+        const body = await r.json().catch(() => ({}))
+        if (r.ok && !body.error) await saveSnapshot(db, acc.client_id, body)
+      }
+      snapshots++
+    } catch {
+      // uma conta com problema não impede as outras
+    }
+  }
+
+  return NextResponse.json({ checked: results.length, results, snapshots })
 }

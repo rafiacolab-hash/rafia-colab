@@ -11,7 +11,7 @@ import {
 } from '@/app/lib/instagram'
 
 /* ─── Tipos ─────────────────────────────────────────────────────────────── */
-type Connection = { connected: boolean; username: string | null; expiresAt: string | null; canManage: boolean; viaAgency?: boolean }
+type Connection = { connected: boolean; username: string | null; expiresAt: string | null; canManage: boolean; viaAgency?: boolean; publicMode?: boolean }
 type AgencyAccount = { id: string; username: string; name?: string; linkedTo: string | null }
 type Profile = {
   username?: string; followers_count?: number; follows_count?: number; media_count?: number
@@ -19,7 +19,7 @@ type Profile = {
 }
 type Media = {
   id: string; caption?: string; media_type: string; media_url?: string; thumbnail_url?: string
-  permalink: string; timestamp?: string; like_count?: number; comments_count?: number
+  permalink: string; timestamp?: string; like_count?: number; comments_count?: number; media_product_type?: string
 }
 type PostRow = Media & { views: number | null; inter: number; rate: number | null }
 type Block<T> = { status: 'loading' | 'ok' | 'error'; data?: T; error?: string; warn?: string }
@@ -93,7 +93,7 @@ export default function MetricasPage({ params }: Props) {
 
   /* ─── Perfil + posts (não dependem do período) ────────────────────────── */
   useEffect(() => {
-    if (!conn?.connected) return
+    if (!conn?.connected || conn.publicMode) return
     let alive = true
     setTokenExpired(false)
     setProfile(LOADING); setPosts(LOADING)
@@ -138,7 +138,7 @@ export default function MetricasPage({ params }: Props) {
 
   /* ─── Métricas do período ─────────────────────────────────────────────── */
   useEffect(() => {
-    if (!conn?.connected) return
+    if (!conn?.connected || conn.publicMode) return
     const my = ++seq.current
     const live = () => my === seq.current
     setBusy(true)
@@ -271,6 +271,7 @@ export default function MetricasPage({ params }: Props) {
         {conn?.connected && (
           <>
             {/* Perfil */}
+            {!conn.publicMode && (
             <div className="flex flex-wrap items-center gap-4 mb-6">
               <div className="w-16 h-16 rounded-full p-[3px] flex-shrink-0" style={{ background: IG_GRADIENT }}>
                 {profile.data?.profile_picture_url
@@ -286,6 +287,7 @@ export default function MetricasPage({ params }: Props) {
                 </p>
               </div>
             </div>
+            )}
 
             {/* Filtros */}
             <div className="flex flex-wrap items-center gap-3 mb-5">
@@ -311,6 +313,9 @@ export default function MetricasPage({ params }: Props) {
               </div>
             </div>
 
+            {conn.publicMode ? (
+              <PublicMetrics clientId={clientId} range={range} days={days} periodLabel={periodLabel} tick={tick} />
+            ) : (<>
             {/* KPIs */}
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
               <Kpi label="Seguidores" loading={profile.status === 'loading'} value={fmt(profile.data?.followers_count)}
@@ -367,10 +372,11 @@ export default function MetricasPage({ params }: Props) {
               ))}
               {posts.data?.map(p => <PostCard key={p.id} post={p} />)}
             </div>
+            </>)}
 
             {conn.canManage && (
               <div className="mt-10 pt-5 border-t border-theme-border">
-                <ConnectPanel clientId={clientId} canManage connectedAs={conn.username} expiresAt={conn.expiresAt} viaAgency={conn.viaAgency} onDone={loadConnection} />
+                <ConnectPanel clientId={clientId} canManage connectedAs={conn.username} expiresAt={conn.expiresAt} viaAgency={conn.viaAgency} publicMode={conn.publicMode} onDone={loadConnection} />
               </div>
             )}
           </>
@@ -434,7 +440,156 @@ function Panel<T>({ title, sub, block, headline, action, children }: {
   )
 }
 
-function PostCard({ post }: { post: PostRow }) {
+/* ─── Modo "só pelo @" (dados públicos via Business Discovery) ──────────── */
+type PublicData = {
+  profile: Profile & { name?: string }
+  media: Media[]
+  snapshots: { snap_date: string; followers: number }[]
+}
+
+const FORMAT_OF = (m: Media) =>
+  m.media_product_type === 'REELS' || m.media_type === 'VIDEO' ? 'Reels' : m.media_type === 'CAROUSEL_ALBUM' ? 'Carrossel' : 'Foto'
+
+function PublicMetrics({ clientId, range, days, periodLabel, tick }: {
+  clientId: string; range: Range; days: { key: string; date: Date }[]; periodLabel: string; tick: number
+}) {
+  const [state, setState] = useState<Block<PublicData>>(LOADING)
+  const [sortBy, setSortBy] = useState<'recent' | 'best'>('recent')
+
+  useEffect(() => {
+    let alive = true
+    setState(LOADING)
+    fetch(`/api/instagram/${clientId}/public`, { credentials: 'same-origin' })
+      .then(async r => {
+        const body = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(body?.error?.message || `Erro ${r.status}`)
+        return body as PublicData
+      })
+      .then(d => { if (alive) setState({ status: 'ok', data: d }) })
+      .catch(e => { if (alive) setState({ status: 'error', error: e instanceof Error ? e.message : 'Erro ao carregar.' }) })
+    return () => { alive = false }
+  }, [clientId, tick])
+
+  const calc = useMemo(() => {
+    const d = state.data
+    if (!d) return null
+    const followers = d.profile.followers_count ?? 0
+    const inRange = d.media
+      .filter(m => m.timestamp && ts(new Date(m.timestamp)) >= range.since && ts(new Date(m.timestamp)) < range.until)
+      .sort((a, b) => Date.parse(a.timestamp ?? '') - Date.parse(b.timestamp ?? ''))
+    const rows: PostRow[] = inRange.map(m => {
+      const inter = (m.like_count ?? 0) + (m.comments_count ?? 0)
+      return { ...m, views: null, inter, rate: followers ? (inter / followers) * 100 : null }
+    })
+    const totalInter = rows.reduce((a, r) => a + r.inter, 0)
+    const avgRate = rows.length && followers ? (totalInter / rows.length / followers) * 100 : null
+
+    // Interações por dia (posts publicados no dia)
+    const perDay = new Map<string, number>()
+    for (const r of rows) {
+      const k = toKey(new Date(r.timestamp as string))
+      perDay.set(k, (perDay.get(k) ?? 0) + r.inter)
+    }
+    const dayValues = days.map(dd => perDay.get(dd.key) ?? 0)
+
+    // Por formato
+    const fmts = ['Reels', 'Carrossel', 'Foto']
+    const byFmt = fmts.map(f => {
+      const list = rows.filter(r => FORMAT_OF(r) === f)
+      return { f, n: list.length, avg: list.length ? list.reduce((a, r) => a + (r.rate ?? 0), 0) / list.length : null }
+    })
+
+    // Seguidores (histórico salvo pelo sistema)
+    const snaps = d.snapshots.filter(s => {
+      const t = ts(fromKey(s.snap_date))
+      return t >= range.since - 86400 && t < range.until
+    })
+    const growth = snaps.length >= 2 ? snaps[snaps.length - 1].followers - snaps[0].followers : null
+    const weeks = Math.max(1, (range.until - range.since) / (7 * 86400))
+    const oldestFetched = d.media.length ? Date.parse(d.media[d.media.length - 1].timestamp ?? '') / 1000 : null
+    const truncated = d.media.length >= 100 && oldestFetched != null && oldestFetched > range.since
+
+    return { followers, rows, totalInter, avgRate, dayValues, byFmt, snaps, growth, perWeek: rows.length / weeks, truncated }
+  }, [state.data, range, days])
+
+  if (state.status === 'loading') return <Spinner />
+  if (state.status === 'error' || !state.data || !calc) {
+    return <Banner tone="error">Não foi possível carregar os dados públicos. {state.error}</Banner>
+  }
+  const p = state.data.profile
+  const sorted = [...calc.rows].sort((a, b) =>
+    sortBy === 'best' ? (b.rate ?? 0) - (a.rate ?? 0) : Date.parse(b.timestamp ?? '') - Date.parse(a.timestamp ?? ''))
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-4 mb-5">
+        <div className="w-16 h-16 rounded-full p-[3px] flex-shrink-0" style={{ background: IG_GRADIENT }}>
+          {p.profile_picture_url
+            ? <img src={p.profile_picture_url} alt="" referrerPolicy="no-referrer" className="w-full h-full rounded-full object-cover border-[3px] border-theme-bg" />
+            : <div className="w-full h-full rounded-full bg-theme-surface border-[3px] border-theme-bg" />}
+        </div>
+        <div className="flex-1 min-w-[200px]">
+          <p className="text-base font-semibold text-theme-primary">@{p.username}</p>
+          <p className="text-sm text-theme-secondary whitespace-pre-line line-clamp-2 max-w-2xl">{p.biography}</p>
+        </div>
+      </div>
+
+      <Banner tone="warn">
+        Acompanhado só pelo @ (dados públicos): seguidores, posts, curtidas e comentários. Alcance e views exigem a conexão completa da conta.
+      </Banner>
+      {calc.truncated && <Banner tone="warn">O período começa antes dos 100 posts mais recentes — posts mais antigos não entram na conta.</Banner>}
+
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+        <Kpi label="Seguidores" value={fmt(calc.followers)}
+          note={calc.growth != null ? `${calc.growth >= 0 ? '+' : ''}${fmt(calc.growth)} no período` : `seguindo ${fmt(p.follows_count)}`} />
+        <Kpi label={`Posts (${periodLabel})`} value={fmt(calc.rows.length)}
+          note={`${calc.perWeek.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} por semana · ${fmt(p.media_count)} no total`} />
+        <Kpi label="Interações por post" value={calc.rows.length ? fmt(calc.totalInter / calc.rows.length) : '—'} note="curtidas + comentários" />
+        <Kpi label="Engajamento médio" value={fmtPct(calc.avgRate)} note="interações ÷ seguidores, por post" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-8">
+        <Panel title="Engajamento por post" sub="Interações ÷ seguidores, em ordem de publicação"
+          block={calc.rows.length ? { status: 'ok' } : { status: 'error', error: 'Nenhum post no período.' }}>
+          <MetricChart labels={calc.rows.map(r => fmtDayShort(new Date(r.timestamp as string)))}
+            values={calc.rows.map(r => r.rate)} kind="bar" color={IG_ORANGE} seriesLabel="Engajamento" format={fmtPct} />
+        </Panel>
+        <Panel title="Interações por dia" sub="Curtidas + comentários dos posts publicados em cada dia"
+          block={calc.rows.length ? { status: 'ok' } : { status: 'error', error: 'Nenhum post no período.' }}>
+          <MetricChart labels={days.map(dd => fmtDayShort(dd.date))} values={calc.dayValues} kind="bar" color={IG_PINK} seriesLabel="Interações" format={fmt} />
+        </Panel>
+        <Panel title="Engajamento por formato" sub={calc.byFmt.map(b => `${b.f}: ${b.n}`).join(' · ')}
+          block={calc.rows.length ? { status: 'ok' } : { status: 'error', error: 'Nenhum post no período.' }}>
+          <MetricChart labels={calc.byFmt.map(b => b.f)} values={calc.byFmt.map(b => b.avg)} kind="bar" color={IG_PURPLE} seriesLabel="Engajamento médio" format={fmtPct} />
+        </Panel>
+        <Panel title="Seguidores" sub="Histórico diário registrado pelo sistema"
+          block={calc.snaps.length >= 2 ? { status: 'ok' }
+            : { status: 'error', error: `O histórico começou em ${state.data.snapshots[0] ? fmtDayLong(fromKey(state.data.snapshots[0].snap_date)) : 'hoje'} — a curva aparece conforme os dias passam.` }}>
+          <MetricChart labels={calc.snaps.map(s => fmtDayShort(fromKey(s.snap_date)))} values={calc.snaps.map(s => s.followers)}
+            kind="line" color={IG_PURPLE} seriesLabel="Seguidores" format={fmt} zeroBased={false} />
+        </Panel>
+      </div>
+
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-semibold text-theme-primary">Posts do período</h2>
+        <div className="flex bg-theme-surface rounded-md p-0.5 gap-0.5">
+          {(['recent', 'best'] as const).map(s => (
+            <button key={s} onClick={() => setSortBy(s)}
+              className={`px-2.5 py-1 rounded text-xs ${sortBy === s ? 'bg-theme-card text-theme-primary shadow-sm' : 'text-theme-muted'}`}>
+              {s === 'recent' ? 'Mais recentes' : 'Melhor engajamento'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+        {sorted.map(r => <PostCard key={r.id} post={r} publicMode />)}
+        {!sorted.length && <p className="text-sm text-theme-muted">Nenhum post no período.</p>}
+      </div>
+    </>
+  )
+}
+
+function PostCard({ post, publicMode }: { post: PostRow; publicMode?: boolean }) {
   const img = post.media_type === 'VIDEO' ? post.thumbnail_url : post.media_url ?? post.thumbnail_url
   const tag = post.media_type === 'VIDEO' ? 'Reels' : post.media_type === 'CAROUSEL_ALBUM' ? 'Carrossel' : ''
   return (
@@ -452,8 +607,8 @@ function PostCard({ post }: { post: PostRow }) {
       <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-1 px-3 py-2.5 mt-2 border-t border-theme-border text-[11px] text-theme-secondary tabular-nums">
         <span title="Curtidas">❤️ {fmt(post.like_count)}</span>
         <span title="Comentários">💬 {fmt(post.comments_count)}</span>
-        <span title="Views">👁️ {fmt(post.views)}</span>
-        <span title="Engajamento (interações ÷ views)"
+        {publicMode ? <span /> : <span title="Views">👁️ {fmt(post.views)}</span>}
+        <span title={publicMode ? 'Engajamento (interações ÷ seguidores)' : 'Engajamento (interações ÷ views)'}
           className={`rounded px-1.5 py-0.5 font-bold ${post.rate == null ? 'bg-theme-surface text-theme-muted' : 'text-white'}`}
           style={post.rate == null ? undefined : { background: IG_GRADIENT }}>
           {fmtPct(post.rate)}
@@ -463,8 +618,8 @@ function PostCard({ post }: { post: PostRow }) {
   )
 }
 
-function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, onDone }: {
-  clientId: string; canManage: boolean; connectedAs?: string | null; expiresAt?: string | null; viaAgency?: boolean; onDone: () => void
+function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, publicMode, onDone }: {
+  clientId: string; canManage: boolean; connectedAs?: string | null; expiresAt?: string | null; viaAgency?: boolean; publicMode?: boolean; onDone: () => void
 }) {
   const [showManual, setShowManual] = useState(false)
   const [showOptions, setShowOptions] = useState(!connectedAs)
@@ -476,6 +631,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, 
   const [agencyList, setAgencyList] = useState<AgencyAccount[] | null>(null)
   const [agencyLoading, setAgencyLoading] = useState(false)
   const [agencyPick, setAgencyPick] = useState('')
+  const [publicUser, setPublicUser] = useState('')
 
   if (!canManage) {
     return (
@@ -558,8 +714,46 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, 
     }
   }
 
+  const linkPublic = async () => {
+    if (!publicUser.trim()) return
+    setSaving(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/instagram/${clientId}/connection`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ publicUsername: publicUser }),
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || `Erro ${res.status}`)
+      setMsg({ tone: 'ok', text: `Acompanhando @${body.username} pelos dados públicos.` })
+      onDone()
+    } catch (e) {
+      setMsg({ tone: 'error', text: e instanceof Error ? e.message : 'Erro ao vincular.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const options = (
     <div className="space-y-4">
+      {/* Só pelo @ — dados públicos, sem senha nem ação do cliente */}
+      <div className="rounded-lg border border-theme-border bg-theme-surface p-3">
+        <p className="text-sm font-medium text-theme-primary">Só pelo @ <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">MAIS RÁPIDO</span></p>
+        <p className="text-xs text-theme-muted mt-0.5 mb-2">
+          Seguidores, posts, curtidas, comentários e engajamento de qualquer conta profissional pública. Alcance e views não entram.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={publicUser} onChange={e => setPublicUser(e.target.value)} placeholder="@usuario"
+            onKeyDown={e => { if (e.key === 'Enter') linkPublic() }}
+            className="min-w-[200px] flex-1 rounded-lg border border-theme-border bg-theme-card px-2 py-1.5 text-xs text-theme-primary" />
+          <button onClick={linkPublic} disabled={!publicUser.trim() || saving}
+            className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black text-xs font-semibold rounded-lg">
+            {saving ? 'Buscando…' : 'Acompanhar'}
+          </button>
+        </div>
+      </div>
+
+      <p className="text-xs font-semibold uppercase tracking-wider text-theme-muted pt-1">Conexão completa (com alcance e views)</p>
+
       {/* Pela BM da agência — sem senha e sem ação do cliente */}
       <div className="rounded-lg border border-theme-border bg-theme-surface p-3">
         <p className="text-sm font-medium text-theme-primary">Pela BM da Ráfia Colab <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">RECOMENDADO</span></p>
@@ -646,7 +840,7 @@ function ConnectPanel({ clientId, canManage, connectedAs, expiresAt, viaAgency, 
       <div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-theme-muted">
           <span>Conectado como <b className="text-theme-secondary">@{connectedAs}</b>
-            {viaAgency ? ' · via BM da Ráfia Colab' : expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ' · acesso permanente'}</span>
+            {publicMode ? ' · só dados públicos (pelo @)' : viaAgency ? ' · via BM da Ráfia Colab' : expiresAt ? ` · token válido até ${fmtDayLong(new Date(expiresAt))} (renovação automática)` : ' · acesso permanente'}</span>
           <button onClick={() => setShowOptions(o => !o)} className="underline hover:text-theme-primary">Reconectar</button>
           <button onClick={disconnect} className="underline hover:text-red-500">Desconectar</button>
         </div>
