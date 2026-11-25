@@ -2,11 +2,24 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient, createDataClient, getUserFromCookie } from '@/app/lib/supabase'
-import { LogOut, ChevronDown, ChevronRight, Sun, Moon, BookOpen, BarChart2 } from 'lucide-react'
+import { LogOut, ChevronDown, ChevronRight, Sun, Moon, BookOpen, BarChart2, Plus } from 'lucide-react'
 import { useTheme } from '@/hooks/useTheme'
 
 type Client = { id: string; name: string; color: string; active?: boolean }
 type MonthList = { id: string; month_ref: string; year: number }
+
+// Mês atual se o cliente ainda não tem nenhum; senão, o mês seguinte ao último gerado
+// (nunca anterior ao mês atual). Na página do mês dá pra ajustar pelas setas.
+function nextMonthRef(months: MonthList[]): string {
+  const now = new Date()
+  const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  if (months.length === 0) return current
+  const latest = months.reduce((a, b) => (a.month_ref > b.month_ref ? a : b)).month_ref
+  const [y, m] = latest.split('-').map(Number)
+  const d = new Date(y, m, 1)
+  const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  return next > current ? next : current
+}
 
 export default function Sidebar() {
   const [clients, setClients] = useState<Client[]>([])
@@ -149,6 +162,16 @@ export default function Sidebar() {
               ))}
               {(monthsByClient[client.id] || []).length === 0 && (
                 <p className="text-theme-muted text-xs px-3 py-1 italic">Nenhum mês</p>
+              )}
+
+              {/* Novo mês: sem isso, cliente recém-cadastrado não tem como chegar ao "Gerar Mês" */}
+              {(rawRole === 'admin' || rawRole === 'assistant') && (
+                <button
+                  onClick={() => router.push(`/${client.id}/${nextMonthRef(monthsByClient[client.id] || [])}`)}
+                  className="w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-theme-surface">
+                  <Plus size={11} className="flex-shrink-0" />
+                  Novo mês
+                </button>
               )}
             </div>
           )}
