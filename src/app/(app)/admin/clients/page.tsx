@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, X, Save, Loader2, Building2 } from 'lucide-react'
+import { Plus, Pencil, X, Save, Loader2, Building2, Trash2 } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+import DeleteClientModal from '@/components/DeleteClientModal'
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 type Client = { id: string; name: string; color: string }
@@ -143,6 +144,7 @@ export default function AdminClientsPage() {
   const [loading, setLoading] = useState(true)
   const [editClient, setEditClient] = useState<Client | null | undefined>(undefined)
   // undefined = modal fechado | null = novo | Client = editar
+  const [deleteClient, setDeleteClient] = useState<Client | null>(null)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -219,12 +221,28 @@ export default function AdminClientsPage() {
                   >
                     <Pencil size={14} />
                   </button>
+                  <button
+                    onClick={() => setDeleteClient(client)}
+                    className="text-theme-muted hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-theme-surface flex-shrink-0"
+                    title="Excluir"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {deleteClient && (
+        <DeleteClientModal
+          clientId={deleteClient.id}
+          clientName={deleteClient.name}
+          onClose={() => setDeleteClient(null)}
+          onDeleted={() => { setDeleteClient(null); fetchAll() }}
+        />
+      )}
 
       {/* Modal */}
       {editClient !== undefined && (

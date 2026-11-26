@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import {
   Save, Loader2, Plus, X, ExternalLink,
   Upload, FileText, Trash2, Check, BookOpen, Power,
 } from 'lucide-react'
 import { createDataClient } from '@/app/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
+import DeleteClientModal from '@/components/DeleteClientModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type LinkItem = { id: string; label: string; url: string }
@@ -121,6 +122,8 @@ export default function BrandProfilePage() {
   const [profileId,    setProfileId]    = useState<string | null>(null)
   const [clientActive, setClientActive] = useState(true)
   const [togglingActive, setTogglingActive] = useState(false)
+  const [showDelete,   setShowDelete]   = useState(false)
+  const router = useRouter()
 
   // ── Ativar / desativar cliente (admin) ──────────────────────────────────────
   const toggleActive = async () => {
@@ -359,6 +362,17 @@ export default function BrandProfilePage() {
           </button>
         )}
 
+        {isAdmin && (
+          <button
+            onClick={() => setShowDelete(true)}
+            title="Apagar este cliente e todos os dados dele"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 size={14} />
+            Excluir cliente
+          </button>
+        )}
+
         {canEdit && (
           <button
             onClick={handleSave}
@@ -534,6 +548,15 @@ export default function BrandProfilePage() {
         {/* Espaço no final para não colar no rodapé */}
         <div className="h-6" />
       </div>
+
+      {showDelete && (
+        <DeleteClientModal
+          clientId={clientId}
+          clientName={clientName}
+          onClose={() => setShowDelete(false)}
+          onDeleted={() => router.replace('/admin/clients')}
+        />
+      )}
     </div>
   )
 }
